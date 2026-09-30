@@ -1,0 +1,26 @@
+[project]
+name = "chatgpt-usage-dashboard"
+version = "0.1.0"
+description = "Local-first ChatGPT workspace usage dashboard"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.115.12",
+  "httpx==0.28.1",
+  "python-dotenv==1.1.0",
+  "uvicorn[standard]==0.34.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.5",
+  "pytest-cov==6.1.1",
+  "respx==0.22.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["app"]
+

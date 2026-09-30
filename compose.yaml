@@ -1,0 +1,29 @@
+services:
+  dashboard:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /app/data
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    init: true
+    restart: unless-stopped
+
+  collector:
+    build: .
+    profiles: ["tools"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    entrypoint: ["python", "-m", "app"]
+    command: ["collect", "--days", "7"]
+    init: true
+
