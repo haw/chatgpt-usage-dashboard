@@ -94,7 +94,17 @@ Adminキーやネットワークを使わず、fixtureに対してAPIクライ�
 - [MVP仕様書](docs/SPECIFICATION.md)
 - [タスクリスト](docs/TASKS.md)
 
+## ローカルコミット履歴
+
+この実行環境では予約済みの `.git` が読み取り専用だったため、履歴は `.git-local` に保存しています。
+
+```bash
+./git-local.sh log --oneline
+./git-local.sh status
+```
+
+通常のGit環境へ移した後は、標準の `.git` を利用できます。
+
 ## 本番化の方針
 
 収集コンテナは同じ `python -m app collect --days 7` をECSタスクとして実行できます。本番化ではLocalStorageをS3実装へ差し替え、EventBridge Scheduler、Cognito認証、CloudFront/API Gatewayを追加します。
-
