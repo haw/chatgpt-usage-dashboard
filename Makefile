@@ -13,8 +13,7 @@ collect:
 	docker compose run --rm collector collect --days 7
 
 test:
-	docker compose run --rm --no-deps --entrypoint sh collector -c 'pip install --no-cache-dir -e ".[dev]" >/dev/null && pytest'
+	docker compose run --rm --no-deps test
 
 logs:
 	docker compose logs -f dashboard
-
