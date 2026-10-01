@@ -25,5 +25,8 @@ addopts = "-q"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+app = ["static/*"]
+
 [tool.coverage.run]
 source = ["app"]
