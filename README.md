@@ -29,6 +29,7 @@ docker compose up -d --build dashboard
 - 個人を指定したトークンCSVの取込、ユーザー切り替え、日次推移、異常分析
 - 個人ごとの5時間枠・週次枠への到達相当回数と声かけ目安
 - 個人の日次・週次消費表と、行ごとの利用枠消費率・到達情報
+- 個人別CSVの保存履歴、ファイルサイズ、SHA-256確認・コピー
 
 製品別DAUには同じ利用者が重複する可能性があるため合算しません。KPIは「最新日の製品別最大DAU」を参考値として表示します。検出結果は統計的な兆候であり、不正利用を断定するものではありません。休日、全社イベント、製品展開などと合わせて確認してください。
 
@@ -67,6 +68,8 @@ Start Time,End Time,Chat,Codex,Work
 
 個人別の日次表には、その日の `Codex + Work`、5時間参考上限に対する消費率、到達相当回数を表示します。週次表は月曜から日曜で集計し、製品別トークン、`Codex + Work`、週次参考上限に対する消費率、到達相当回数を表示します。80%以上は「接近」、100%以上は「到達相当」として色分けします。
 
+個人別分析の「個人データの保存履歴」では、取込日時、ユーザー、対象期間、日数、元CSVのサイズとSHA-256を確認できます。SHA-256はクリックでコピーできます。新しい取込ではユーザー情報をraw CSVと同じrunへ保存します。機能追加前のraw CSVでユーザーを特定できないものは「不明（旧データ）」と表示します。
+
 ## 保存データ
 
 すべて `./data` に保存され、Git管理対象外です。
@@ -75,6 +78,8 @@ Start Time,End Time,Chat,Codex,Work
 data/
 ├── raw/<run-id>/active-users.csv
 ├── raw/<run-id>/tokens.csv
+├── raw/<run-id>/individual-tokens.csv
+├── raw/<run-id>/individual-import.json
 ├── normalized/workspace-usage.jsonl
 ├── normalized/individual-usage.jsonl
 ├── state/import.json

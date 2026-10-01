@@ -39,6 +39,7 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 - 設定画面で5時間・週次の参考上限を変更し、初期値へリセットできる。
 - 個人の日次表にCodex + Work、5時間枠消費率、到達相当回数を表示する。
 - 個人の週次表を月曜から日曜で集計し、製品別トークン、Codex + Work、週次枠消費率、到達相当回数を表示する。
+- 個人別CSVの保存履歴に取込日時、ユーザー、対象期間、日数、サイズ、SHA-256を表示する。
 
 ## 4. 異常判定
 
@@ -71,6 +72,8 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 data/
   raw/<run-id>/active-users.csv
   raw/<run-id>/tokens.csv
+  raw/<run-id>/individual-tokens.csv
+  raw/<run-id>/individual-import.json
   normalized/workspace-usage.jsonl
   normalized/individual-usage.jsonl
   state/import.json
@@ -90,6 +93,7 @@ data/
 - `GET /health`: ヘルスチェックを返す。
 - `POST /api/individual/import`: ユーザー識別子と個人別トークンCSVを取り込む。
 - `GET /api/individual`: ユーザー一覧と選択ユーザーの集計を返す。
+- `GET /api/individual/imports`: 個人別CSVの保存履歴を返す。
 - 入力不備はHTTP 400、ファイル上限超過はHTTP 413で返す。
 
 ## 7. セキュリティ
