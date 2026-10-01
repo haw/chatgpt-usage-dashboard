@@ -1,14 +1,15 @@
+import hashlib
 from pathlib import Path
 
 from datetime import date, datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.analytics import build_workspace_dashboard
+from app.analytics import build_individual_dashboard, build_workspace_dashboard
 from app.config import Settings
-from app.csv_importer import CSVImportError, parse_and_join
+from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
 from app.storage import create_storage
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -49,6 +50,14 @@ def import_history() -> dict:
     return {"imports": storage.list_import_history()}
 
 
+@app.get("/api/individual")
+def individual_dashboard(user_id: str | None = Query(default=None)) -> dict:
+    storage = create_storage(Settings.from_env())
+    return build_individual_dashboard(
+        storage.load_individual_usage(), storage.load_individual_import_state(), user_id
+    )
+
+
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
@@ -83,3 +92,34 @@ async def import_csv(
     }
     storage.save_import_state(state)
     return build_workspace_dashboard(storage.load_workspace_usage(), state)
+
+
+@app.post("/api/individual/import")
+async def import_individual_csv(
+    user_label: str = Form(...),
+    tokens_file: UploadFile = File(...),
+) -> dict:
+    label = " ".join(user_label.split())
+    if not label or len(label) > 200:
+        raise HTTPException(status_code=400, detail="ユーザー名またはメールアドレスを200文字以内で指定してください")
+    token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
+    if len(token_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="CSVは5 MiB以下にしてください")
+    try:
+        parsed = parse_token_csv(token_bytes)
+    except CSVImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    user_id = hashlib.sha256(label.casefold().encode()).hexdigest()[:20]
+    rows = [{**row, "user_id": user_id, "user_label": label} for row in parsed]
+    storage = create_storage(Settings.from_env())
+    run_id = storage.create_run()
+    storage.save_raw_csv(run_id, "individual-tokens.csv", token_bytes)
+    total_rows = storage.merge_individual_usage(rows)
+    state = {
+        "status": "success", "completed_at": datetime.now(timezone.utc).isoformat(),
+        "start_date": rows[0]["date"], "end_date": rows[-1]["date"],
+        "imported_days": len(rows), "stored_rows": total_rows,
+        "run_id": run_id, "user_id": user_id, "user_label": label,
+    }
+    storage.save_individual_import_state(state)
+    return build_individual_dashboard(storage.load_individual_usage(), state, user_id)

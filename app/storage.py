@@ -22,6 +22,10 @@ class Storage(Protocol):
     def merge_usage(self, incoming: list[dict[str, Any]]) -> int: ...
     def save_state(self, state: dict[str, Any]) -> None: ...
     def load_state(self) -> dict[str, Any]: ...
+    def load_individual_usage(self) -> list[dict[str, Any]]: ...
+    def merge_individual_usage(self, incoming: list[dict[str, Any]]) -> int: ...
+    def save_individual_import_state(self, state: dict[str, Any]) -> None: ...
+    def load_individual_import_state(self) -> dict[str, Any]: ...
 
 
 class LocalStorage:
@@ -44,7 +48,7 @@ class LocalStorage:
         return path
 
     def save_raw_csv(self, run_id: str, name: str, payload: bytes) -> Path:
-        if name not in {"active-users.csv", "tokens.csv"}:
+        if name not in {"active-users.csv", "tokens.csv", "individual-tokens.csv"}:
             raise ValueError("unsupported raw CSV name")
         path = self.raw_dir / run_id / name
         path.write_bytes(payload)
@@ -89,6 +93,34 @@ class LocalStorage:
         if not path.exists():
             return []
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def load_individual_usage(self) -> list[dict[str, Any]]:
+        path = self.normalized_dir / "individual-usage.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def merge_individual_usage(self, incoming: list[dict[str, Any]]) -> int:
+        merged = {(row["user_id"], row["date"]): row for row in self.load_individual_usage()}
+        merged.update({(row["user_id"], row["date"]): row for row in incoming})
+        rows = [merged[key] for key in sorted(merged)]
+        target = self.normalized_dir / "individual-usage.jsonl"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(
+            "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        temporary.replace(target)
+        return len(rows)
+
+    def save_individual_import_state(self, state: dict[str, Any]) -> None:
+        self._write_json(self.state_dir / "individual-import.json", state)
+
+    def load_individual_import_state(self) -> dict[str, Any]:
+        path = self.state_dir / "individual-import.json"
+        if not path.exists():
+            return {"status": "never_imported"}
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int:
         merged = {row["date"]: row for row in self.load_workspace_usage()}
@@ -195,7 +227,7 @@ class S3Storage:
         return self._put(f"raw/{run_id}/page-{page_number:04d}.json", body, "application/json")
 
     def save_raw_csv(self, run_id: str, name: str, payload: bytes) -> str:
-        if name not in {"active-users.csv", "tokens.csv"}:
+        if name not in {"active-users.csv", "tokens.csv", "individual-tokens.csv"}:
             raise ValueError("unsupported raw CSV name")
         digest = hashlib.sha256(payload).hexdigest()
         return self._put(f"raw/{run_id}/{name}", payload, "text/csv", {"sha256": digest})
@@ -249,6 +281,22 @@ class S3Storage:
 
     def load_workspace_usage(self) -> list[dict[str, Any]]:
         return self._load_jsonl("normalized/workspace-usage.jsonl")
+
+    def load_individual_usage(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("normalized/individual-usage.jsonl")
+
+    def merge_individual_usage(self, incoming: list[dict[str, Any]]) -> int:
+        merged = {(row["user_id"], row["date"]): row for row in self.load_individual_usage()}
+        merged.update({(row["user_id"], row["date"]): row for row in incoming})
+        rows = [merged[key] for key in sorted(merged)]
+        self._save_jsonl("normalized/individual-usage.jsonl", rows)
+        return len(rows)
+
+    def save_individual_import_state(self, state: dict[str, Any]) -> None:
+        self._save_json("state/individual-import.json", state)
+
+    def load_individual_import_state(self) -> dict[str, Any]:
+        return self._load_json("state/individual-import.json", {"status": "never_imported"})
 
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int:
         merged = {row["date"]: row for row in self.load_workspace_usage()}

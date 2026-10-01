@@ -37,6 +37,19 @@ def parse_and_join(active_bytes: bytes, token_bytes: bytes) -> list[dict[str, An
     ]
 
 
+def parse_token_csv(token_bytes: bytes) -> list[dict[str, Any]]:
+    """Parse a daily token export without requiring the active-user export."""
+    tokens = _parse(token_bytes, "個人別トークンCSV")
+    return [
+        {
+            "date": day,
+            "end_date": tokens[day]["end_date"],
+            "tokens": {**tokens[day]["values"], "total": sum(tokens[day]["values"].values())},
+        }
+        for day in sorted(tokens)
+    ]
+
+
 def _parse(payload: bytes, label: str) -> dict[str, dict[str, Any]]:
     try:
         text = payload.decode("utf-8-sig")

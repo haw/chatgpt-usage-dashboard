@@ -68,6 +68,22 @@ def test_workspace_merge_replaces_same_date(tmp_path: Path):
     assert storage.load_import_state() == {"status": "never_imported"}
 
 
+def test_individual_merge_is_scoped_by_user_and_date(tmp_path: Path):
+    storage = LocalStorage(tmp_path)
+    base = {"date": "2026-09-01", "tokens": {"total": 10}}
+    storage.merge_individual_usage([
+        {**base, "user_id": "u1", "user_label": "User 1"},
+        {**base, "user_id": "u2", "user_label": "User 2"},
+    ])
+    storage.merge_individual_usage([
+        {**base, "user_id": "u1", "user_label": "User 1", "tokens": {"total": 20}},
+    ])
+    assert [(row["user_id"], row["tokens"]["total"]) for row in storage.load_individual_usage()] == [
+        ("u1", 20), ("u2", 10)
+    ]
+    assert storage.load_individual_import_state() == {"status": "never_imported"}
+
+
 def test_lists_saved_csv_import_history(tmp_path: Path):
     storage = LocalStorage(tmp_path)
     run_id = storage.create_run()
@@ -106,6 +122,16 @@ def test_s3_storage_persists_workspace_data_state_and_history():
     assert history[0]["days"] == 1
     assert history[0]["active_users_sha256"] == hashlib.sha256(active).hexdigest()
     assert ("usage-bucket", "company/dashboard/normalized/workspace-usage.jsonl") in client.objects
+
+
+def test_s3_storage_persists_individual_usage():
+    client = FakeS3Client()
+    storage = S3Storage("usage-bucket", "dashboard", client)
+    row = {"user_id": "u1", "user_label": "User", "date": "2026-09-01", "tokens": {"total": 5}}
+    storage.merge_individual_usage([row])
+    storage.save_individual_import_state({"status": "success"})
+    assert storage.load_individual_usage() == [row]
+    assert storage.load_individual_import_state() == {"status": "success"}
 
 
 def test_storage_factory_selects_local_or_s3(tmp_path: Path):

@@ -83,6 +83,43 @@ def _percentile(values: list[float], percentile: float) -> float:
 PRODUCTS = ("chat", "codex", "work")
 
 
+def build_individual_dashboard(
+    rows: list[dict[str, Any]],
+    state: dict[str, Any],
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    users_by_id: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        current = users_by_id.setdefault(row["user_id"], {
+            "user_id": row["user_id"], "user_label": row["user_label"],
+            "start_date": row["date"], "end_date": row["date"], "days": 0, "total_tokens": 0,
+        })
+        current["start_date"] = min(current["start_date"], row["date"])
+        current["end_date"] = max(current["end_date"], row["date"])
+        current["days"] += 1
+        current["total_tokens"] += row["tokens"]["total"]
+    users = sorted(users_by_id.values(), key=lambda item: item["user_label"].casefold())
+    selected_id = user_id if user_id in users_by_id else (users[0]["user_id"] if users else None)
+    daily = sorted((row for row in rows if row["user_id"] == selected_id), key=lambda row: row["date"])
+    analysis = build_token_analysis(daily)
+    total = sum(row["tokens"]["total"] for row in daily)
+    product_totals = {product: sum(row["tokens"][product] for row in daily) for product in PRODUCTS}
+    return {
+        "state": state,
+        "users": users,
+        "selected_user": users_by_id.get(selected_id),
+        "daily": daily,
+        "analysis": analysis,
+        "product_totals": product_totals,
+        "kpis": {
+            "total_tokens": total,
+            "daily_average_tokens": round(total / len(daily)) if daily else 0,
+            "latest_tokens": daily[-1]["tokens"]["total"] if daily else 0,
+            "alerts": sum(1 for point in analysis if point["is_anomaly"]),
+        },
+    }
+
+
 def build_workspace_dashboard(
     rows: list[dict[str, Any]],
     state: dict[str, Any],
