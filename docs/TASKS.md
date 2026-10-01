@@ -34,7 +34,7 @@
 
 ## AWS化
 
-- [ ] S3ストレージアダプターを追加する
+- [x] S3ストレージアダプターを追加する
 - [ ] ECS/FargateまたはLambdaの費用比較後に実行基盤をIaC化する
 - [ ] CloudFront、S3、API Gateway、CognitoをIaC化する
 - [ ] GitHub Actions OIDCとAWSデプロイを構成する

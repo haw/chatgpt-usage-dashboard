@@ -62,6 +62,44 @@ data/
 
 同じ日付を再取込した場合、正規化データは最新値へ置換されます。元CSVはrunごとに保存されます。
 
+## 保存先の切り替え
+
+ローカル開発では既定で `LocalStorage` を使い、Docker Composeの `./data:/app/data` ボリュームへ保存します。
+
+AWSでは次の環境変数をECSタスク定義などへ設定すると、同じデータ構造をS3へ保存します。
+
+```env
+STORAGE_BACKEND=s3
+S3_BUCKET=your-private-bucket
+S3_PREFIX=chatgpt-dashboard
+AWS_REGION=ap-northeast-1
+```
+
+AWSアクセスキーは設定せず、ECSタスクロールを利用してください。タスクロールには、対象プレフィックスへの `s3:GetObject`、`s3:PutObject` と、対象バケットへの `s3:ListBucket` が必要です。
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::your-private-bucket/chatgpt-dashboard/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::your-private-bucket",
+      "Condition": {
+        "StringLike": {"s3:prefix": "chatgpt-dashboard/raw/*"}
+      }
+    }
+  ]
+}
+```
+
+S3上のキーは `raw/<run-id>/...`、`normalized/*.jsonl`、`state/*.json` です。正規化データの更新は読込後に全体を書き戻す方式のため、アップロード処理を同時実行せず、ECSタスク数は1にするか外部で直列化してください。
+
 ## テスト
 
 ```bash
@@ -77,4 +115,4 @@ docker compose run --rm --no-deps test
 
 ## 本番化の方針
 
-本番ではLocalStorageをS3実装へ差し替え、Cognito等の認証を追加します。取込頻度が低く速度要件も高くないため、常時起動のECS Serviceより、S3 + Lambda/API Gateway + CloudFrontのサーバーレス構成の方が一般に低コストです。CSVの定期取得手段を用意できた場合のみEventBridge Schedulerを追加します。
+本番では環境変数でS3保存へ切り替え、Cognito等の認証を追加します。取込頻度が低く速度要件も高くないため、常時起動のECS Serviceより、S3 + Lambda/API Gateway + CloudFrontのサーバーレス構成の方が一般に低コストです。CSVの定期取得手段を用意できた場合のみEventBridge Schedulerを追加します。

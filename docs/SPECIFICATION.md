@@ -80,9 +80,18 @@ data/
 - 実データなしでfixtureを使ったテストを実行できる。
 - Python 3.12、Docker Compose v2を対象とする。
 
-## 9. 将来拡張
+## 9. S3保存
 
-- ストレージ実装をS3へ差し替える。
+- `STORAGE_BACKEND=s3` の場合、ローカルと同じ論理構造を指定バケットの `S3_PREFIX` 配下へ保存する。
+- raw CSV、正規化JSONL、取込状態、旧Analytics APIのraw JSONと状態をS3へ保存する。
+- AWS認証情報はアプリへ保存せず、ECSタスクロールなどboto3の標準認証チェーンを利用する。
+- 必要なS3権限は対象プレフィックスの `GetObject`、`PutObject` と、raw履歴取得のための `ListBucket` とする。
+- 正規化JSONLはread-modify-writeで更新するため、複数ライターによる同時更新は対象外とする。
+- S3障害時はローカルへ暗黙にフォールバックせず、リクエストを失敗させて不整合を防ぐ。
+
+## 10. 将来拡張
+
+- S3バケットの暗号化、保持期間、監視をIaCで構成する。
 - 認証済みの取込APIをEventBridge SchedulerやECSタスクから呼び出す。
 - Cognito認証、通知、アラート確認状態を追加する。
 - 30日以上の履歴を使った曜日補正、季節性、変化点検知を追加する。
