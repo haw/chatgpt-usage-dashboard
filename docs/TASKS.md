@@ -1,27 +1,27 @@
 # タスクリスト
 
-## MVP
+## 集計CSV版MVP
 
-- [x] 仕様とデータ境界を文書化する
-- [x] PythonプロジェクトとDocker Composeを構成する
-- [x] 設定読込と秘密情報の除外を実装する
-- [x] Analytics APIクライアントを実装する
-- [x] 7日分の手動収集CLIを実装する
-- [x] rawレスポンスのローカル保存を実装する
-- [x] APIレスポンスの正規化と冪等保存を実装する
-- [x] 集計・異常判定を実装する
-- [x] ダッシュボードAPIと画面を実装する
-- [x] fixtureベースの単体テストを追加する
-- [x] ローカル実行手順をREADMEへ記載する
-- [x] CIを追加する
-- [ ] 実AdminキーでAPI接続とレスポンススキーマを確認する
-- [ ] 実レスポンスに合わせて必要ならfixture／正規化マッピングを更新する
+- [x] CSV版の仕様とデータ境界を文書化する
+- [ ] 2種類のCSVの検証・正規化・日付結合を実装する
+- [ ] raw CSV保存と日付単位の冪等保存を実装する
+- [ ] CSVアップロードAPIを実装する
+- [ ] ワークスペース全体向け集計とロバスト異常判定を実装する
+- [ ] アップロード、KPI、推移、アラート、日次表を画面へ実装する
+- [ ] CSV取込・異常判定・APIのテストを追加する
+- [ ] READMEとDocker構成をCSV版へ更新する
+- [ ] Docker Composeでテストと画面動作を確認する
 
 ## AWS化
 
 - [ ] S3ストレージアダプターを追加する
-- [ ] ECR、ECS Task Definition、EventBridge SchedulerをIaC化する
-- [ ] CloudFront、S3、API Gateway、Lambda、CognitoをIaC化する
+- [ ] ECS/FargateまたはLambdaの費用比較後に実行基盤をIaC化する
+- [ ] CloudFront、S3、API Gateway、CognitoをIaC化する
 - [ ] GitHub Actions OIDCとAWSデプロイを構成する
 - [ ] 保持期間、暗号化、監視、アラートを設定する
 
+## 旧Analytics API版（参考・実環境未確認）
+
+- [x] Analytics APIクライアントと7日分の手動収集CLIを実装する
+- [x] APIレスポンスのraw保存と正規化を実装する
+- [ ] 利用可能な契約・権限を得た場合に実APIで検証する
