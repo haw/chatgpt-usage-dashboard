@@ -55,7 +55,6 @@ document.querySelectorAll('.tab-button').forEach(button => button.addEventListen
   });
   document.querySelector('#workspace-tab').hidden = tab !== 'workspace';
   document.querySelector('#individual-tab').hidden = tab !== 'individual';
-  document.querySelector('#history-button').hidden = tab !== 'workspace';
   if (tab === 'individual' && !individualLoaded) loadIndividual();
 }));
 
@@ -107,8 +106,6 @@ document.querySelector('#settings-reset').addEventListener('click', () => {
 document.querySelector('#reset-range').addEventListener('click', () => load());
 document.querySelector('#history-button').addEventListener('click', openHistory);
 document.querySelector('#history-close').addEventListener('click', () => document.querySelector('#history-dialog').close());
-document.querySelector('#individual-history-button').addEventListener('click', openIndividualHistory);
-document.querySelector('#individual-history-close').addEventListener('click', () => document.querySelector('#individual-history-dialog').close());
 async function handleHashCopy(event) {
   const button = event.target.closest('.hash-copy');
   if (!button) return;
@@ -370,9 +367,8 @@ function enableRangeDrag(svg, rows, left, plotWidth) {
 }
 
 function compact(value) { return new Intl.NumberFormat('ja-JP', {notation:'compact', maximumFractionDigits:1}).format(value); }
-async function openHistory(){const dialog=document.querySelector('#history-dialog');const table=document.querySelector('#history-table');table.innerHTML='<tr><td colspan="5" class="empty">読み込み中</td></tr>';dialog.showModal();try{const response=await fetch('/api/imports');const data=await response.json();if(!response.ok)throw new Error(data.detail||`HTTP ${response.status}`);renderHistory(data.imports||[])}catch(error){table.innerHTML=`<tr><td colspan="5" class="empty">履歴を読み込めません: ${esc(error.message)}</td></tr>`}}
+async function openHistory(){const dialog=document.querySelector('#history-dialog');const table=document.querySelector('#history-table');const individualTable=document.querySelector('#individual-history-table');table.innerHTML='<tr><td colspan="5" class="empty">読み込み中</td></tr>';individualTable.innerHTML='<tr><td colspan="5" class="empty">読み込み中</td></tr>';dialog.showModal();try{const [overallResponse,individualResponse]=await Promise.all([fetch('/api/imports'),fetch('/api/individual/imports')]);const overall=await overallResponse.json();const individual=await individualResponse.json();if(!overallResponse.ok)throw new Error(overall.detail||`HTTP ${overallResponse.status}`);if(!individualResponse.ok)throw new Error(individual.detail||`HTTP ${individualResponse.status}`);renderHistory(overall.imports||[]);renderIndividualHistory(individual.imports||[])}catch(error){const message=`<tr><td colspan="5" class="empty">履歴を読み込めません: ${esc(error.message)}</td></tr>`;table.innerHTML=message;individualTable.innerHTML=message}}
 function renderHistory(rows){const table=document.querySelector('#history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存されたCSV履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.active_users_bytes,row.active_users_sha256)}</td><td>${historyFile(row.tokens_bytes,row.tokens_sha256)}</td></tr>`).join('')}
-async function openIndividualHistory(){const dialog=document.querySelector('#individual-history-dialog');const table=document.querySelector('#individual-history-table');table.innerHTML='<tr><td colspan="5" class="empty">読み込み中</td></tr>';dialog.showModal();try{const response=await fetch('/api/individual/imports');const data=await response.json();if(!response.ok)throw new Error(data.detail||`HTTP ${response.status}`);renderIndividualHistory(data.imports||[])}catch(error){table.innerHTML=`<tr><td colspan="5" class="empty">履歴を読み込めません: ${esc(error.message)}</td></tr>`}}
 function renderIndividualHistory(rows){const table=document.querySelector('#individual-history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存された個人CSV履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.user_label)}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.bytes,row.sha256)}</td></tr>`).join('')}
 function fileSize(bytes){if(bytes<1024)return `${fmt.format(bytes)} B`;return `${new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(bytes/1024)} KiB`}
 function historyFile(bytes,hash){const short=`${hash.slice(0,12)}…${hash.slice(-12)}`;return `<span class="file-size">${fileSize(bytes)}</span><button type="button" class="hash-copy" data-hash="${esc(hash)}" aria-label="SHA-256をコピー" title="${esc(hash)}"><code>${short}</code><span class="material-icons copy-icon" aria-hidden="true">content_copy</span><span class="copy-feedback" role="status">コピーしました</span></button>`}

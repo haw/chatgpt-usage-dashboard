@@ -17,7 +17,11 @@ def test_index_has_workspace_and_individual_tabs():
     assert 'id="individual-weekly-table"' in response.text
     assert "5時間枠消費率" in response.text
     assert "週次枠消費率" in response.text
-    assert 'id="individual-history-dialog"' in response.text
+    assert response.text.count('id="history-dialog"') == 1
+    assert 'id="history-table"' in response.text
+    assert 'id="individual-history-table"' in response.text
+    assert "全体データ" in response.text
+    assert "個人データ" in response.text
 
 
 def test_import_endpoint(tmp_path, monkeypatch):
