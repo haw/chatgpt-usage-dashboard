@@ -32,3 +32,19 @@
 .individual-selector label { display:grid; gap:5px }
 .individual-selector select { min-width:min(420px,100%); padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:white; color:var(--ink) }
 @media(max-width:560px) { .tabs { width:100% } .tab-button { flex:1; padding-inline:8px } .individual-selector { align-items:stretch; flex-direction:column } .individual-selector select { min-width:0; width:100% } }
+.header-actions { display:flex; align-items:center; gap:8px }
+.header-actions button { display:inline-flex; align-items:center; gap:5px }
+.header-actions .material-icons { font-size:17px }
+.quota-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px }
+.quota-grid article { min-height:125px; padding:17px; border:1px solid var(--line); border-radius:10px; background:#faf8f3; display:flex; flex-direction:column }
+.quota-grid span { color:var(--muted); font-size:.78rem }
+.quota-grid strong { margin:10px 0 auto; font:700 1.75rem/1.2 ui-monospace,monospace }
+.quota-grid .support-high { color:var(--red) }.quota-grid .support-medium { color:#ad5c19 }.quota-grid .support-low { color:var(--green) }
+.settings-dialog { width:min(650px,calc(100vw - 32px)) }
+.settings-fields { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:22px 0 }
+.settings-fields label { display:grid; gap:7px; color:var(--muted); font-size:.78rem }
+.settings-fields input { width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; background:white; color:var(--ink); font:600 .95rem ui-monospace,monospace }
+.dialog-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:18px }
+.dialog-actions button { padding:10px 15px; border-radius:8px; font-weight:700; cursor:pointer }
+.secondary-button { border:1px solid var(--line); background:white; color:var(--ink) }.primary-button { border:0; background:var(--green); color:white }
+@media(max-width:700px) { .quota-grid,.settings-fields { grid-template-columns:1fr } .header-actions { width:100%; flex-wrap:wrap } }

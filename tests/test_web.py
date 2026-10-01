@@ -11,6 +11,9 @@ def test_index_has_workspace_and_individual_tabs():
     assert response.status_code == 200
     assert "全体分析" in response.text
     assert "個人別分析" in response.text
+    assert 'id="settings-dialog"' in response.text
+    assert 'id="individual-five-hour-hits"' in response.text
+    assert 'id="individual-weekly-hits"' in response.text
 
 
 def test_import_endpoint(tmp_path, monkeypatch):

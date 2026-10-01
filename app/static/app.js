@@ -7,6 +7,10 @@ const signalFilters = {tokens:true, dau:true};
 const serviceFilters = {overall:true, chat:true, codex:true, work:true};
 let currentAlerts = [];
 let individualLoaded = false;
+let currentIndividualData = null;
+const DEFAULT_LIMITS = {fiveHour:26300000, weekly:173000000};
+const LIMIT_SETTINGS_KEY = 'chatgpt-dashboard.limit-settings.v1';
+let limitSettings = loadLimitSettings();
 
 async function load(start, end) {
   try {
@@ -77,6 +81,28 @@ document.querySelector('#individual-upload-form').addEventListener('submit', asy
 });
 
 document.querySelector('#individual-user-select').addEventListener('change', event => loadIndividual(event.target.value));
+document.querySelector('#settings-button').addEventListener('click', openLimitSettings);
+document.querySelector('#quota-settings-shortcut').addEventListener('click', openLimitSettings);
+document.querySelector('#settings-close').addEventListener('click', () => document.querySelector('#settings-dialog').close());
+document.querySelector('#limit-settings-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const fiveHour = Number(document.querySelector('#five-hour-limit').value);
+  const weekly = Number(document.querySelector('#weekly-limit').value);
+  if (!Number.isSafeInteger(fiveHour) || fiveHour < 1 || !Number.isSafeInteger(weekly) || weekly < 1) {
+    setSettingsMessage('上限は1以上の整数で指定してください。', 'error');
+    return;
+  }
+  limitSettings = {fiveHour, weekly};
+  if (persistLimitSettings()) setSettingsMessage('このブラウザに保存しました。', 'success');
+  if (currentIndividualData) renderQuotaEstimate(currentIndividualData.daily);
+});
+document.querySelector('#settings-reset').addEventListener('click', () => {
+  limitSettings = {...DEFAULT_LIMITS};
+  const saved = persistLimitSettings();
+  fillLimitSettings();
+  if (saved) setSettingsMessage('初期値にリセットして保存しました。', 'success');
+  if (currentIndividualData) renderQuotaEstimate(currentIndividualData.daily);
+});
 
 document.querySelector('#reset-range').addEventListener('click', () => load());
 document.querySelector('#history-button').addEventListener('click', openHistory);
@@ -138,6 +164,7 @@ async function loadIndividual(userId) {
 }
 
 function renderIndividual(data) {
+  currentIndividualData = data;
   const select = document.querySelector('#individual-user-select');
   const selectedId = data.selected_user?.user_id || '';
   select.disabled = !data.users.length;
@@ -151,6 +178,67 @@ function renderIndividual(data) {
   renderLineChart('#individual-token-chart', data.daily, 'tokens', false);
   renderAnalysisChart(data.analysis || [], '#individual-analysis-chart', '各日の直前最大7日（最低5日）から計算');
   renderIndividualTable(data.daily);
+  renderQuotaEstimate(data.daily);
+}
+
+function loadLimitSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LIMIT_SETTINGS_KEY));
+    if (Number.isSafeInteger(saved?.fiveHour) && saved.fiveHour > 0 && Number.isSafeInteger(saved?.weekly) && saved.weekly > 0) return saved;
+  } catch (_) {}
+  return {...DEFAULT_LIMITS};
+}
+
+function persistLimitSettings() {
+  try { localStorage.setItem(LIMIT_SETTINGS_KEY, JSON.stringify(limitSettings)); return true; }
+  catch (_) { setSettingsMessage('ブラウザへ保存できませんでした。', 'error'); return false; }
+}
+
+function fillLimitSettings() {
+  document.querySelector('#five-hour-limit').value = limitSettings.fiveHour;
+  document.querySelector('#weekly-limit').value = limitSettings.weekly;
+}
+
+function openLimitSettings() {
+  fillLimitSettings();
+  setSettingsMessage('', 'hidden');
+  document.querySelector('#settings-dialog').showModal();
+}
+
+function weekStart(date) {
+  const value = new Date(`${date}T00:00:00Z`);
+  const offset = (value.getUTCDay() + 6) % 7;
+  value.setUTCDate(value.getUTCDate() - offset);
+  return value.toISOString().slice(0, 10);
+}
+
+function renderQuotaEstimate(rows) {
+  const weeklyTotals = new Map();
+  let fiveHourHits = 0;
+  rows.forEach(row => {
+    const agentTokens = row.tokens.codex + row.tokens.work;
+    fiveHourHits += Math.floor(agentTokens / limitSettings.fiveHour);
+    const key = weekStart(row.date);
+    weeklyTotals.set(key, (weeklyTotals.get(key) || 0) + agentTokens);
+  });
+  const weeks = [...weeklyTotals.values()];
+  const weeklyHits = weeks.reduce((sum, value) => sum + Math.floor(value / limitSettings.weekly), 0);
+  const pressureWeeks = weeks.filter(value => value >= limitSettings.weekly * .8).length;
+  const maxWeeklyRatio = weeks.length ? Math.max(...weeks) / limitSettings.weekly : 0;
+  let level = '低', css = 'support-low', reason = '参考上限の80%未満です';
+  if (weeklyHits > 0 || fiveHourHits >= 2) {
+    level = '高'; css = 'support-high'; reason = '利用枠へ繰り返し接近・到達した可能性があります';
+  } else if (fiveHourHits > 0 || pressureWeeks > 0 || maxWeeklyRatio >= .6) {
+    level = '中'; css = 'support-medium'; reason = '利用枠へ接近した可能性があります';
+  }
+  document.querySelector('#individual-five-hour-hits').textContent = `${fmt.format(fiveHourHits)}回相当`;
+  document.querySelector('#individual-weekly-hits').textContent = `${fmt.format(weeklyHits)}回相当`;
+  document.querySelector('#individual-five-hour-detail').textContent = `参考上限 ${fmt.format(limitSettings.fiveHour)} tokens`;
+  document.querySelector('#individual-weekly-detail').textContent = `${pressureWeeks}週が80%以上・上限 ${fmt.format(limitSettings.weekly)}`;
+  const levelEl = document.querySelector('#individual-support-level');
+  levelEl.textContent = rows.length ? level : '—';
+  levelEl.className = css;
+  document.querySelector('#individual-support-reason').textContent = rows.length ? reason : 'データ取込後に判定';
 }
 
 function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null) {
@@ -258,4 +346,5 @@ function renderTable(rows){const el=document.querySelector('#daily-table');if(!r
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="5" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td></tr>`).join('')}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
+function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}
 load();
