@@ -94,14 +94,14 @@ document.querySelector('#limit-settings-form').addEventListener('submit', event 
   }
   limitSettings = {fiveHour, weekly};
   if (persistLimitSettings()) setSettingsMessage('このブラウザに保存しました。', 'success');
-  if (currentIndividualData) renderQuotaEstimate(currentIndividualData.daily);
+  if (currentIndividualData) renderIndividualLimitViews(currentIndividualData.daily);
 });
 document.querySelector('#settings-reset').addEventListener('click', () => {
   limitSettings = {...DEFAULT_LIMITS};
   const saved = persistLimitSettings();
   fillLimitSettings();
   if (saved) setSettingsMessage('初期値にリセットして保存しました。', 'success');
-  if (currentIndividualData) renderQuotaEstimate(currentIndividualData.daily);
+  if (currentIndividualData) renderIndividualLimitViews(currentIndividualData.daily);
 });
 
 document.querySelector('#reset-range').addEventListener('click', () => load());
@@ -177,8 +177,7 @@ function renderIndividual(data) {
   document.querySelector('#individual-alert-count').textContent = fmt.format(data.kpis.alerts);
   renderLineChart('#individual-token-chart', data.daily, 'tokens', false);
   renderAnalysisChart(data.analysis || [], '#individual-analysis-chart', '各日の直前最大7日（最低5日）から計算');
-  renderIndividualTable(data.daily);
-  renderQuotaEstimate(data.daily);
+  renderIndividualLimitViews(data.daily);
 }
 
 function loadLimitSettings() {
@@ -212,16 +211,48 @@ function weekStart(date) {
   return value.toISOString().slice(0, 10);
 }
 
+function buildWeeklyRows(rows) {
+  const grouped = new Map();
+  rows.forEach(row => {
+    const start = weekStart(row.date);
+    const current = grouped.get(start) || {start, chat:0, codex:0, work:0, total:0};
+    products.forEach(product => current[product] += row.tokens[product]);
+    current.total += row.tokens.total;
+    grouped.set(start, current);
+  });
+  return [...grouped.values()].sort((a, b) => a.start.localeCompare(b.start)).map(row => {
+    const end = new Date(`${row.start}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 6);
+    return {...row, end:end.toISOString().slice(0, 10), agentTokens:row.codex + row.work};
+  });
+}
+
+function limitInfo(value, limit) {
+  const ratio = value / limit * 100;
+  const hits = Math.floor(value / limit);
+  if (hits > 0) return {ratio, css:'reached', label:`${fmt.format(hits)}回相当`};
+  if (ratio >= 80) return {ratio, css:'near', label:'80%以上'};
+  return {ratio, css:'normal', label:'未到達目安'};
+}
+
+function limitCells(value, limit) {
+  const info = limitInfo(value, limit);
+  return `<td><span class="limit-ratio">${new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(info.ratio)}%</span><small class="limit-detail">上限 ${fmt.format(limit)}</small></td><td><span class="limit-status ${info.css}">${info.label}</span></td>`;
+}
+
+function renderIndividualLimitViews(rows) {
+  renderIndividualTable(rows);
+  renderIndividualWeeklyTable(rows);
+  renderQuotaEstimate(rows);
+}
+
 function renderQuotaEstimate(rows) {
-  const weeklyTotals = new Map();
   let fiveHourHits = 0;
   rows.forEach(row => {
     const agentTokens = row.tokens.codex + row.tokens.work;
     fiveHourHits += Math.floor(agentTokens / limitSettings.fiveHour);
-    const key = weekStart(row.date);
-    weeklyTotals.set(key, (weeklyTotals.get(key) || 0) + agentTokens);
   });
-  const weeks = [...weeklyTotals.values()];
+  const weeks = buildWeeklyRows(rows).map(row => row.agentTokens);
   const weeklyHits = weeks.reduce((sum, value) => sum + Math.floor(value / limitSettings.weekly), 0);
   const pressureWeeks = weeks.filter(value => value >= limitSettings.weekly * .8).length;
   const maxWeeklyRatio = weeks.length ? Math.max(...weeks) / limitSettings.weekly : 0;
@@ -343,7 +374,8 @@ async function copyText(value){if(navigator.clipboard&&window.isSecureContext){a
 function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=row.type==='token_spike'?signalFilters.tokens:signalFilters.dau;const service=row.product||'overall';return signalVisible&&serviceFilters[service]});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const labels={token_spike:'トークン急増',dau_spike:'DAU急増',dau_drop:'DAU急減'};el.className='alerts';el.innerHTML=visible.map(row=>`<article><b>${labels[row.type]||esc(row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}（基準 ${fmt.format(row.baseline)}）</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
 function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.active_users[p])}</td>`).join('')}${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td></tr>`).join('')}
-function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="5" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td></tr>`).join('')}
+function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
+function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
 function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}

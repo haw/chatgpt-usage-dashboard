@@ -48,3 +48,6 @@
 .dialog-actions button { padding:10px 15px; border-radius:8px; font-weight:700; cursor:pointer }
 .secondary-button { border:1px solid var(--line); background:white; color:var(--ink) }.primary-button { border:0; background:var(--green); color:white }
 @media(max-width:700px) { .quota-grid,.settings-fields { grid-template-columns:1fr } .header-actions { width:100%; flex-wrap:wrap } }
+.limit-status { display:inline-block; min-width:70px; padding:4px 7px; border-radius:999px; font-size:.68rem; font-weight:800; text-align:center; white-space:nowrap }
+.limit-status.normal { background:#e3f0e9; color:var(--green) }.limit-status.near { background:#fff0d8; color:#a65b19 }.limit-status.reached { background:#f8dfdb; color:var(--red) }
+.limit-ratio { display:block; font-weight:800 }.limit-detail { display:block; margin-top:3px; color:var(--muted); font-size:.66rem; white-space:nowrap }

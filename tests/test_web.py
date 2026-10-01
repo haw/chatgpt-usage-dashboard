@@ -14,6 +14,9 @@ def test_index_has_workspace_and_individual_tabs():
     assert 'id="settings-dialog"' in response.text
     assert 'id="individual-five-hour-hits"' in response.text
     assert 'id="individual-weekly-hits"' in response.text
+    assert 'id="individual-weekly-table"' in response.text
+    assert "5時間枠消費率" in response.text
+    assert "週次枠消費率" in response.text
 
 
 def test_import_endpoint(tmp_path, monkeypatch):
