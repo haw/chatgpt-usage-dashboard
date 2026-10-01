@@ -5,10 +5,10 @@ from typing import Any
 
 from app.client import AnalyticsClient
 from app.normalizer import normalize_pages
-from app.storage import LocalStorage
+from app.storage import Storage
 
 
-def collect(client: AnalyticsClient, storage: LocalStorage, days: int = 7, end_date: date | None = None) -> dict[str, Any]:
+def collect(client: AnalyticsClient, storage: Storage, days: int = 7, end_date: date | None = None) -> dict[str, Any]:
     if not 1 <= days <= 90:
         raise ValueError("days must be between 1 and 90")
     exclusive_date = end_date or datetime.now(timezone.utc).date()
@@ -38,4 +38,3 @@ def collect(client: AnalyticsClient, storage: LocalStorage, days: int = 7, end_d
         storage.save_state({"status": "error", "run_id": run_id, "started_at": started_at,
                             "completed_at": datetime.now(timezone.utc).isoformat(), "error": str(exc)})
         raise
-

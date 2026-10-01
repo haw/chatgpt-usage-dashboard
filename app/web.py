@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.analytics import build_workspace_dashboard
 from app.config import Settings
 from app.csv_importer import CSVImportError, parse_and_join
-from app.storage import LocalStorage
+from app.storage import create_storage
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="ChatGPT Usage Dashboard", docs_url="/api/docs", redoc_url=None)
@@ -34,7 +34,7 @@ def dashboard(
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="開始日は終了日以前にしてください")
     settings = Settings.from_env()
-    storage = LocalStorage(settings.data_dir)
+    storage = create_storage(settings)
     return build_workspace_dashboard(
         storage.load_workspace_usage(),
         storage.load_import_state(),
@@ -45,7 +45,7 @@ def dashboard(
 
 @app.get("/api/imports")
 def import_history() -> dict:
-    storage = LocalStorage(Settings.from_env().data_dir)
+    storage = create_storage(Settings.from_env())
     return {"imports": storage.list_import_history()}
 
 
@@ -66,7 +66,7 @@ async def import_csv(
     except CSVImportError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    storage = LocalStorage(Settings.from_env().data_dir)
+    storage = create_storage(Settings.from_env())
     run_id = storage.create_run()
     storage.save_raw_csv(run_id, "active-users.csv", active_bytes)
     storage.save_raw_csv(run_id, "tokens.csv", token_bytes)

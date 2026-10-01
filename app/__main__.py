@@ -8,7 +8,7 @@ import uvicorn
 from app.client import AnalyticsClient, AnalyticsAPIError
 from app.collector import collect
 from app.config import Settings
-from app.storage import LocalStorage
+from app.storage import create_storage
 
 
 def main() -> None:
@@ -26,7 +26,7 @@ def main() -> None:
         return
     try:
         settings = Settings.from_env(require_key=True)
-        storage = LocalStorage(settings.data_dir)
+        storage = create_storage(settings)
         client = AnalyticsClient(settings.analytics_url, settings.admin_key, settings.timeout_seconds, settings.max_retries)
         result = collect(client, storage, days=args.days)
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -36,4 +36,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
