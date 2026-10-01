@@ -17,6 +17,7 @@ def test_index_has_workspace_and_individual_tabs():
     assert 'id="individual-weekly-table"' in response.text
     assert "5時間枠消費率" in response.text
     assert "週次枠消費率" in response.text
+    assert 'id="individual-history-dialog"' in response.text
 
 
 def test_import_endpoint(tmp_path, monkeypatch):
@@ -76,6 +77,9 @@ def test_individual_import_and_dashboard(tmp_path, monkeypatch):
     assert loaded.status_code == 200
     assert loaded.json()["daily"][0]["tokens"]["codex"] == 200
     assert (tmp_path / "normalized" / "individual-usage.jsonl").exists()
+    history = client.get("/api/individual/imports")
+    assert history.status_code == 200
+    assert history.json()["imports"][0]["user_label"] == "user@example.com"
 
 
 def test_individual_import_requires_label(tmp_path, monkeypatch):

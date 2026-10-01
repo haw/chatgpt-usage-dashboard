@@ -51,3 +51,4 @@
 .limit-status { display:inline-block; min-width:70px; padding:4px 7px; border-radius:999px; font-size:.68rem; font-weight:800; text-align:center; white-space:nowrap }
 .limit-status.normal { background:#e3f0e9; color:var(--green) }.limit-status.near { background:#fff0d8; color:#a65b19 }.limit-status.reached { background:#f8dfdb; color:var(--red) }
 .limit-ratio { display:block; font-weight:800 }.limit-detail { display:block; margin-top:3px; color:var(--muted); font-size:.66rem; white-space:nowrap }
+.inline-history-button { margin-top:12px; padding:7px 11px!important; border:1px solid var(--line)!important; border-radius:999px!important; background:white!important; color:var(--green)!important; font-size:.72rem }

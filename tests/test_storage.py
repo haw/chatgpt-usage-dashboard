@@ -84,6 +84,21 @@ def test_individual_merge_is_scoped_by_user_and_date(tmp_path: Path):
     assert storage.load_individual_import_state() == {"status": "never_imported"}
 
 
+def test_lists_individual_import_history_with_metadata(tmp_path: Path):
+    storage = LocalStorage(tmp_path)
+    run_id = storage.create_run()
+    payload = b"Start Time,End Time,Chat,Codex,Work\n2026-09-01,2026-09-02,1,2,3\n"
+    storage.save_raw_csv(run_id, "individual-tokens.csv", payload)
+    storage.save_individual_import_metadata(run_id, {
+        "user_id": "u1", "user_label": "User 1", "start_date": "2026-09-01",
+        "end_date": "2026-09-01", "imported_days": 1,
+    })
+    history = storage.list_individual_import_history()
+    assert history[0]["user_label"] == "User 1"
+    assert history[0]["days"] == 1
+    assert history[0]["sha256"] == hashlib.sha256(payload).hexdigest()
+
+
 def test_lists_saved_csv_import_history(tmp_path: Path):
     storage = LocalStorage(tmp_path)
     run_id = storage.create_run()
@@ -132,6 +147,20 @@ def test_s3_storage_persists_individual_usage():
     storage.save_individual_import_state({"status": "success"})
     assert storage.load_individual_usage() == [row]
     assert storage.load_individual_import_state() == {"status": "success"}
+
+
+def test_s3_storage_lists_individual_import_history():
+    client = FakeS3Client()
+    storage = S3Storage("usage-bucket", "dashboard", client)
+    run_id = "20260901T010203.000000Z"
+    payload = b"Start Time,End Time,Chat,Codex,Work\n2026-09-01,2026-09-02,1,2,3\n"
+    storage.save_raw_csv(run_id, "individual-tokens.csv", payload)
+    storage.save_individual_import_metadata(run_id, {
+        "user_id": "u1", "user_label": "User 1", "imported_days": 1,
+    })
+    history = storage.list_individual_import_history()
+    assert history[0]["user_label"] == "User 1"
+    assert history[0]["start_date"] == "2026-09-01"
 
 
 def test_storage_factory_selects_local_or_s3(tmp_path: Path):

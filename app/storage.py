@@ -26,6 +26,8 @@ class Storage(Protocol):
     def merge_individual_usage(self, incoming: list[dict[str, Any]]) -> int: ...
     def save_individual_import_state(self, state: dict[str, Any]) -> None: ...
     def load_individual_import_state(self) -> dict[str, Any]: ...
+    def save_individual_import_metadata(self, run_id: str, metadata: dict[str, Any]) -> Any: ...
+    def list_individual_import_history(self) -> list[dict[str, Any]]: ...
 
 
 class LocalStorage:
@@ -85,6 +87,42 @@ class LocalStorage:
                 "tokens_bytes": token_path.stat().st_size,
                 "active_users_sha256": hashlib.sha256(active_path.read_bytes()).hexdigest(),
                 "tokens_sha256": hashlib.sha256(token_path.read_bytes()).hexdigest(),
+            })
+        return sorted(history, key=lambda item: item["run_id"], reverse=True)
+
+    def save_individual_import_metadata(self, run_id: str, metadata: dict[str, Any]) -> Path:
+        path = self.raw_dir / run_id / "individual-import.json"
+        self._write_json(path, metadata)
+        return path
+
+    def list_individual_import_history(self) -> list[dict[str, Any]]:
+        history: list[dict[str, Any]] = []
+        latest_state = self.load_individual_import_state()
+        for run_dir in self.raw_dir.iterdir():
+            csv_path = run_dir / "individual-tokens.csv"
+            if not run_dir.is_dir() or not csv_path.exists():
+                continue
+            try:
+                payload = csv_path.read_bytes()
+                text = payload.decode("utf-8-sig")
+                dates = [(row.get("Start Time") or "").strip()[:10]
+                         for row in csv.DictReader(StringIO(text))
+                         if (row.get("Start Time") or "").strip()]
+                imported_at = datetime.strptime(run_dir.name, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).isoformat()
+                metadata_path = run_dir / "individual-import.json"
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+                if not metadata and latest_state.get("run_id") == run_dir.name:
+                    metadata = latest_state
+            except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+                continue
+            history.append({
+                "run_id": run_dir.name, "imported_at": imported_at,
+                "user_id": metadata.get("user_id"),
+                "user_label": metadata.get("user_label") or "不明（旧データ）",
+                "start_date": metadata.get("start_date") or (min(dates) if dates else None),
+                "end_date": metadata.get("end_date") or (max(dates) if dates else None),
+                "days": metadata.get("imported_days") or len(set(dates)),
+                "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
             })
         return sorted(history, key=lambda item: item["run_id"], reverse=True)
 
@@ -266,6 +304,51 @@ class S3Storage:
                 "active_users_bytes": len(active), "tokens_bytes": len(tokens),
                 "active_users_sha256": hashlib.sha256(active).hexdigest(),
                 "tokens_sha256": hashlib.sha256(tokens).hexdigest(),
+            })
+        return sorted(history, key=lambda item: item["run_id"], reverse=True)
+
+    def save_individual_import_metadata(self, run_id: str, metadata: dict[str, Any]) -> str:
+        self._save_json(f"raw/{run_id}/individual-import.json", metadata)
+        return self._key(f"raw/{run_id}/individual-import.json")
+
+    def list_individual_import_history(self) -> list[dict[str, Any]]:
+        root = self._key("raw/")
+        paginator = self.client.get_paginator("list_objects_v2")
+        runs: dict[str, set[str]] = {}
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=root):
+            for item in page.get("Contents", []):
+                relative = item["Key"][len(root):]
+                parts = relative.split("/", 1)
+                if len(parts) == 2:
+                    runs.setdefault(parts[0], set()).add(parts[1])
+        latest_state = self.load_individual_import_state()
+        history: list[dict[str, Any]] = []
+        for run_id, names in runs.items():
+            if "individual-tokens.csv" not in names:
+                continue
+            try:
+                payload = self._get(f"raw/{run_id}/individual-tokens.csv")
+                if payload is None:
+                    continue
+                text = payload.decode("utf-8-sig")
+                dates = [(row.get("Start Time") or "").strip()[:10]
+                         for row in csv.DictReader(StringIO(text))
+                         if (row.get("Start Time") or "").strip()]
+                imported_at = datetime.strptime(run_id, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).isoformat()
+                metadata_body = self._get(f"raw/{run_id}/individual-import.json")
+                metadata = json.loads(metadata_body.decode()) if metadata_body else {}
+                if not metadata and latest_state.get("run_id") == run_id:
+                    metadata = latest_state
+            except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+                continue
+            history.append({
+                "run_id": run_id, "imported_at": imported_at,
+                "user_id": metadata.get("user_id"),
+                "user_label": metadata.get("user_label") or "不明（旧データ）",
+                "start_date": metadata.get("start_date") or (min(dates) if dates else None),
+                "end_date": metadata.get("end_date") or (max(dates) if dates else None),
+                "days": metadata.get("imported_days") or len(set(dates)),
+                "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
             })
         return sorted(history, key=lambda item: item["run_id"], reverse=True)
 

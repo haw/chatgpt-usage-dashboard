@@ -58,6 +58,12 @@ def individual_dashboard(user_id: str | None = Query(default=None)) -> dict:
     )
 
 
+@app.get("/api/individual/imports")
+def individual_import_history() -> dict:
+    storage = create_storage(Settings.from_env())
+    return {"imports": storage.list_individual_import_history()}
+
+
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
@@ -121,5 +127,6 @@ async def import_individual_csv(
         "imported_days": len(rows), "stored_rows": total_rows,
         "run_id": run_id, "user_id": user_id, "user_label": label,
     }
+    storage.save_individual_import_metadata(run_id, state)
     storage.save_individual_import_state(state)
     return build_individual_dashboard(storage.load_individual_usage(), state, user_id)
