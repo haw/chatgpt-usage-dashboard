@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from statistics import median
 from typing import Any
 
 
@@ -78,3 +79,68 @@ def _percentile(values: list[float], percentile: float) -> float:
     index = max(0, math.ceil(len(ordered) * percentile) - 1)
     return ordered[index]
 
+
+PRODUCTS = ("chat", "codex", "work")
+
+
+def build_workspace_dashboard(rows: list[dict[str, Any]], state: dict[str, Any]) -> dict[str, Any]:
+    ordered = sorted(rows, key=lambda row: row["date"])
+    alerts = detect_workspace_alerts(ordered)
+    total_tokens = sum(row["tokens"]["total"] for row in ordered)
+    latest = ordered[-1] if ordered else None
+    products = []
+    for product in PRODUCTS:
+        products.append({
+            "product": product,
+            "tokens": sum(row["tokens"][product] for row in ordered),
+            "average_active_users": round(
+                sum(row["active_users"][product] for row in ordered) / len(ordered), 1
+            ) if ordered else 0,
+        })
+    return {
+        "state": state,
+        "kpis": {
+            "latest_max_product_dau": max(latest["active_users"].values()) if latest else 0,
+            "total_tokens": total_tokens,
+            "daily_average_tokens": round(total_tokens / len(ordered)) if ordered else 0,
+            "alerts": len(alerts),
+        },
+        "daily": ordered,
+        "products": products,
+        "alerts": alerts,
+    }
+
+
+def detect_workspace_alerts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
+    metrics = [("tokens", "total"), *(('tokens', p) for p in PRODUCTS), *(('active_users', p) for p in PRODUCTS)]
+    for group, product in metrics:
+        for index, row in enumerate(rows):
+            history = rows[max(0, index - 7):index]
+            if len(history) < 5:
+                continue
+            values = [previous[group][product] for previous in history]
+            value = row[group][product]
+            center = float(median(values))
+            mad = float(median(abs(sample - center) for sample in values))
+            score = 0.6745 * (value - center) / mad if mad else None
+            if group == "tokens":
+                anomalous = value > center and ((score is not None and score >= 3.5) or (mad == 0 and value >= max(center * 2, 1)))
+                kind = "token_spike"
+            else:
+                ratio_outlier = mad == 0 and ((center == 0 and value >= 2) or (center > 0 and (value >= center * 2 or value <= center * .5)))
+                anomalous = abs(value - center) >= 2 and ((score is not None and abs(score) >= 3.5) or ratio_outlier)
+                kind = "dau_spike" if value > center else "dau_drop"
+            if anomalous:
+                metric_label = "総トークン" if product == "total" else ("トークン" if group == "tokens" else "DAU")
+                alerts.append({
+                    "type": kind,
+                    "metric": metric_label,
+                    "product": None if product == "total" else product,
+                    "date": row["date"],
+                    "value": value,
+                    "baseline": round(center, 1),
+                    "score": round(score, 2) if score is not None else None,
+                    "reason": f"直前{len(history)}日の中央値 {center:,.1f} から大きく変化",
+                })
+    return sorted(alerts, key=lambda item: (item["date"], item["metric"]), reverse=True)
