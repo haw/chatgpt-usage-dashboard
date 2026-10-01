@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -27,10 +27,26 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/dashboard")
-def dashboard() -> dict:
+def dashboard(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+) -> dict:
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="開始日は終了日以前にしてください")
     settings = Settings.from_env()
     storage = LocalStorage(settings.data_dir)
-    return build_workspace_dashboard(storage.load_workspace_usage(), storage.load_import_state())
+    return build_workspace_dashboard(
+        storage.load_workspace_usage(),
+        storage.load_import_state(),
+        start_date.isoformat() if start_date else None,
+        end_date.isoformat() if end_date else None,
+    )
+
+
+@app.get("/api/imports")
+def import_history() -> dict:
+    storage = LocalStorage(Settings.from_env().data_dir)
+    return {"imports": storage.list_import_history()}
 
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024

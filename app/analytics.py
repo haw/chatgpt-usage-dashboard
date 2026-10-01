@@ -83,41 +83,104 @@ def _percentile(values: list[float], percentile: float) -> float:
 PRODUCTS = ("chat", "codex", "work")
 
 
-def build_workspace_dashboard(rows: list[dict[str, Any]], state: dict[str, Any]) -> dict[str, Any]:
+def build_workspace_dashboard(
+    rows: list[dict[str, Any]],
+    state: dict[str, Any],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     ordered = sorted(rows, key=lambda row: row["date"])
-    alerts = detect_workspace_alerts(ordered)
-    total_tokens = sum(row["tokens"]["total"] for row in ordered)
-    latest = ordered[-1] if ordered else None
+    selected = [
+        row for row in ordered
+        if (start_date is None or row["date"] >= start_date)
+        and (end_date is None or row["date"] <= end_date)
+    ]
+    period_wide = start_date is not None or end_date is not None
+    alerts = detect_workspace_alerts(selected, period_wide=period_wide)
+    analysis = build_token_analysis(selected, period_wide=period_wide)
+    total_tokens = sum(row["tokens"]["total"] for row in selected)
+    latest = selected[-1] if selected else None
     products = []
     for product in PRODUCTS:
         products.append({
             "product": product,
-            "tokens": sum(row["tokens"][product] for row in ordered),
+            "tokens": sum(row["tokens"][product] for row in selected),
             "average_active_users": round(
-                sum(row["active_users"][product] for row in ordered) / len(ordered), 1
-            ) if ordered else 0,
+                sum(row["active_users"][product] for row in selected) / len(selected), 1
+            ) if selected else 0,
         })
     return {
         "state": state,
         "kpis": {
             "latest_max_product_dau": max(latest["active_users"].values()) if latest else 0,
             "total_tokens": total_tokens,
-            "daily_average_tokens": round(total_tokens / len(ordered)) if ordered else 0,
+            "daily_average_tokens": round(total_tokens / len(selected)) if selected else 0,
             "alerts": len(alerts),
         },
-        "daily": ordered,
+        "daily": selected,
         "products": products,
         "alerts": alerts,
+        "analysis": analysis,
+        "available_period": {
+            "start_date": ordered[0]["date"] if ordered else None,
+            "end_date": ordered[-1]["date"] if ordered else None,
+        },
+        "selected_period": {
+            "start_date": selected[0]["date"] if selected else start_date,
+            "end_date": selected[-1]["date"] if selected else end_date,
+        },
     }
 
 
-def detect_workspace_alerts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_token_analysis(
+    rows: list[dict[str, Any]],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    period_wide: bool = False,
+) -> list[dict[str, Any]]:
+    """Build total-token observations with the same rolling threshold used by alerts."""
+    result: list[dict[str, Any]] = []
+    period_center: float | None = None
+    period_threshold: float | None = None
+    if period_wide and rows:
+        period_values = [row["tokens"]["total"] for row in rows]
+        period_center = float(median(period_values))
+        period_mad = float(median(abs(sample - period_center) for sample in period_values))
+        period_threshold = period_center + (3.5 * period_mad / 0.6745) if period_mad else max(period_center * 2, 1)
+    for index, row in enumerate(rows):
+        if start_date and row["date"] < start_date:
+            continue
+        if end_date and row["date"] > end_date:
+            continue
+        history = rows[max(0, index - 7):index]
+        center: float | None = None
+        threshold: float | None = None
+        if period_wide:
+            center = period_center
+            threshold = period_threshold
+        elif len(history) >= 5:
+            values = [previous["tokens"]["total"] for previous in history]
+            center = float(median(values))
+            mad = float(median(abs(sample - center) for sample in values))
+            threshold = center + (3.5 * mad / 0.6745) if mad else max(center * 2, 1)
+        value = row["tokens"]["total"]
+        result.append({
+            "date": row["date"],
+            "value": value,
+            "baseline": round(center, 1) if center is not None else None,
+            "threshold": round(threshold, 1) if threshold is not None else None,
+            "is_anomaly": threshold is not None and value >= threshold,
+        })
+    return result
+
+
+def detect_workspace_alerts(rows: list[dict[str, Any]], period_wide: bool = False) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
     metrics = [("tokens", "total"), *(('tokens', p) for p in PRODUCTS), *(('active_users', p) for p in PRODUCTS)]
     for group, product in metrics:
         for index, row in enumerate(rows):
-            history = rows[max(0, index - 7):index]
-            if len(history) < 5:
+            history = rows if period_wide else rows[max(0, index - 7):index]
+            if (not period_wide and len(history) < 5) or not history:
                 continue
             values = [previous[group][product] for previous in history]
             value = row[group][product]
@@ -141,6 +204,6 @@ def detect_workspace_alerts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "value": value,
                     "baseline": round(center, 1),
                     "score": round(score, 2) if score is not None else None,
-                    "reason": f"直前{len(history)}日の中央値 {center:,.1f} から大きく変化",
+                    "reason": (f"選択期間の中央値 {center:,.1f} から大きく変化" if period_wide else f"直前{len(history)}日の中央値 {center:,.1f} から大きく変化"),
                 })
     return sorted(alerts, key=lambda item: (item["date"], item["metric"]), reverse=True)

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
+from io import StringIO
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,6 +34,40 @@ class LocalStorage:
         path = self.raw_dir / run_id / name
         path.write_bytes(payload)
         return path
+
+    def list_import_history(self) -> list[dict[str, Any]]:
+        history: list[dict[str, Any]] = []
+        for run_dir in self.raw_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            active_path = run_dir / "active-users.csv"
+            token_path = run_dir / "tokens.csv"
+            if not active_path.exists() or not token_path.exists():
+                continue
+            try:
+                text = active_path.read_text(encoding="utf-8-sig")
+                dates = [
+                    (row.get("Start Time") or "").strip()[:10]
+                    for row in csv.DictReader(StringIO(text))
+                    if (row.get("Start Time") or "").strip()
+                ]
+                imported_at = datetime.strptime(
+                    run_dir.name, "%Y%m%dT%H%M%S.%fZ"
+                ).replace(tzinfo=timezone.utc).isoformat()
+            except (OSError, UnicodeDecodeError, ValueError):
+                continue
+            history.append({
+                "run_id": run_dir.name,
+                "imported_at": imported_at,
+                "start_date": min(dates) if dates else None,
+                "end_date": max(dates) if dates else None,
+                "days": len(set(dates)),
+                "active_users_bytes": active_path.stat().st_size,
+                "tokens_bytes": token_path.stat().st_size,
+                "active_users_sha256": hashlib.sha256(active_path.read_bytes()).hexdigest(),
+                "tokens_sha256": hashlib.sha256(token_path.read_bytes()).hexdigest(),
+            })
+        return sorted(history, key=lambda item: item["run_id"], reverse=True)
 
     def load_workspace_usage(self) -> list[dict[str, Any]]:
         path = self.normalized_dir / "workspace-usage.jsonl"

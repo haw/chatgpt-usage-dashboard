@@ -27,3 +27,19 @@ def test_import_endpoint_reports_validation_error(tmp_path, monkeypatch):
     })
     assert response.status_code == 400
     assert "列" in response.json()["detail"]
+
+
+def test_dashboard_rejects_reversed_period(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    response = TestClient(app).get(
+        "/api/dashboard?start_date=2026-09-10&end_date=2026-09-01"
+    )
+    assert response.status_code == 400
+    assert "開始日" in response.json()["detail"]
+
+
+def test_import_history_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    response = TestClient(app).get("/api/imports")
+    assert response.status_code == 200
+    assert response.json() == {"imports": []}

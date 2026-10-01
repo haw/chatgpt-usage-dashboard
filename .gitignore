@@ -7,3 +7,5 @@ data/*
 !data/.gitkeep
 .git-local/
 docs/analytics-overview-*.csv
+node_modules/
+app/static/vendor/
