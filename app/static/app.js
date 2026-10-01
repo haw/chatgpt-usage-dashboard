@@ -6,6 +6,7 @@ let availablePeriod = {start_date:null, end_date:null};
 const signalFilters = {tokens:true, dau:true};
 const serviceFilters = {overall:true, chat:true, codex:true, work:true};
 let currentAlerts = [];
+let individualLoaded = false;
 
 async function load(start, end) {
   try {
@@ -40,6 +41,42 @@ document.querySelector('#upload-form').addEventListener('submit', async event =>
     button.textContent = 'アップロードして分析';
   }
 });
+
+document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => {
+  const tab = button.dataset.tab;
+  document.querySelectorAll('.tab-button').forEach(item => {
+    const active = item === button;
+    item.classList.toggle('active', active);
+    item.setAttribute('aria-selected', String(active));
+  });
+  document.querySelector('#workspace-tab').hidden = tab !== 'workspace';
+  document.querySelector('#individual-tab').hidden = tab !== 'individual';
+  document.querySelector('#history-button').hidden = tab !== 'workspace';
+  if (tab === 'individual' && !individualLoaded) loadIndividual();
+}));
+
+document.querySelector('#individual-upload-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button');
+  button.disabled = true;
+  button.textContent = '取込中…';
+  setIndividualMessage('CSVを検証しています。', '');
+  try {
+    const response = await fetch('/api/individual/import', {method:'POST', body:new FormData(event.currentTarget)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    individualLoaded = true;
+    renderIndividual(data);
+    setIndividualMessage(`${data.selected_user.user_label} の${data.state.imported_days}日分を取り込みました。`, 'success');
+  } catch (error) {
+    setIndividualMessage(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'アップロードして分析';
+  }
+});
+
+document.querySelector('#individual-user-select').addEventListener('change', event => loadIndividual(event.target.value));
 
 document.querySelector('#reset-range').addEventListener('click', () => load());
 document.querySelector('#history-button').addEventListener('click', openHistory);
@@ -87,8 +124,37 @@ function render(data) {
   renderTable(data.daily);
 }
 
-function renderAnalysisChart(rows) {
-  const el = document.querySelector('#analysis-chart');
+async function loadIndividual(userId) {
+  try {
+    const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    const response = await fetch(`/api/individual${query}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    individualLoaded = true;
+    renderIndividual(data);
+  } catch (error) {
+    setIndividualMessage(`読み込みに失敗しました: ${error.message}`, 'error');
+  }
+}
+
+function renderIndividual(data) {
+  const select = document.querySelector('#individual-user-select');
+  const selectedId = data.selected_user?.user_id || '';
+  select.disabled = !data.users.length;
+  select.innerHTML = data.users.length ? data.users.map(user =>
+    `<option value="${esc(user.user_id)}"${user.user_id === selectedId ? ' selected' : ''}>${esc(user.user_label)}（${fmt.format(user.total_tokens)} tokens）</option>`
+  ).join('') : '<option value="">データがありません</option>';
+  document.querySelector('#individual-total').textContent = fmt.format(data.kpis.total_tokens);
+  document.querySelector('#individual-average').textContent = fmt.format(data.kpis.daily_average_tokens);
+  document.querySelector('#individual-latest').textContent = fmt.format(data.kpis.latest_tokens);
+  document.querySelector('#individual-alert-count').textContent = fmt.format(data.kpis.alerts);
+  renderLineChart('#individual-token-chart', data.daily, 'tokens', false);
+  renderAnalysisChart(data.analysis || [], '#individual-analysis-chart', '各日の直前最大7日（最低5日）から計算');
+  renderIndividualTable(data.daily);
+}
+
+function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null) {
+  const el = document.querySelector(selector);
   if (!rows.length) {
     el.className = 'chart empty';
     el.textContent = '指定期間にデータがありません';
@@ -115,11 +181,12 @@ function renderAnalysisChart(rows) {
   const actualDots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row.value)}" r="${row.is_anomaly?6:3}" class="${row.is_anomaly?'analysis-anomaly':'analysis-dot'}"><title>${row.date} 実測: ${fmt.format(row.value)}${row.baseline === null?'（基準期間不足）':` / 中央値: ${fmt.format(row.baseline)} / 判定ライン: ${fmt.format(row.threshold)}`}</title></circle>`).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length/10));
   const labels = rows.map((row,index) => index%labelStep===0 || index===rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
-  const narrowed = availablePeriod.start_date && rows.length && (rows[0].date !== availablePeriod.start_date || rows.at(-1).date !== availablePeriod.end_date);
-  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="総トークン異常分析グラフ">${grid}${path('threshold','analysis-threshold-line')}${path('baseline','analysis-baseline-line')}${path('value','analysis-actual-line')}${actualDots}${labels}</svg><small class="drag-hint">${narrowed?'選択期間全体の中央値とMAD':'全期間の直前最大7日（最低5日）'}から計算</small>`;
+  const narrowed = selector === '#analysis-chart' && availablePeriod.start_date && rows.length && (rows[0].date !== availablePeriod.start_date || rows.at(-1).date !== availablePeriod.end_date);
+  const description = hint || `${narrowed?'選択期間全体の中央値とMAD':'全期間の直前最大7日（最低5日）'}から計算`;
+  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="総トークン異常分析グラフ">${grid}${path('threshold','analysis-threshold-line')}${path('baseline','analysis-baseline-line')}${path('value','analysis-actual-line')}${actualDots}${labels}</svg><small class="drag-hint">${description}</small>`;
 }
 
-function renderLineChart(selector, rows, key) {
+function renderLineChart(selector, rows, key, rangeEnabled = true) {
   const el = document.querySelector(selector);
   if (!rows.length) {
     el.className = 'chart empty';
@@ -143,8 +210,9 @@ function renderLineChart(selector, rows, key) {
   }).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length / 10));
   const labels = rows.map((row,index) => index % labelStep === 0 || index === rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
-  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="期間をドラッグして選択できる折れ線グラフ">${grid}${series}${labels}<rect class="drag-selection" x="0" y="${top}" width="0" height="${plotHeight}"/><rect class="drag-surface" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="transparent"/></svg><small class="drag-hint">グラフ上を横にドラッグして分析期間を選択</small>`;
-  enableRangeDrag(el.querySelector('svg'), rows, left, plotWidth);
+  const rangeLayer = rangeEnabled ? `<rect class="drag-selection" x="0" y="${top}" width="0" height="${plotHeight}"/><rect class="drag-surface" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="transparent"/>` : '';
+  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="製品別の折れ線グラフ">${grid}${series}${labels}${rangeLayer}</svg>${rangeEnabled?'<small class="drag-hint">グラフ上を横にドラッグして分析期間を選択</small>':''}`;
+  if (rangeEnabled) enableRangeDrag(el.querySelector('svg'), rows, left, plotWidth);
 }
 
 function enableRangeDrag(svg, rows, left, plotWidth) {
@@ -187,5 +255,7 @@ async function copyText(value){if(navigator.clipboard&&window.isSecureContext){a
 function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=row.type==='token_spike'?signalFilters.tokens:signalFilters.dau;const service=row.product||'overall';return signalVisible&&serviceFilters[service]});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const labels={token_spike:'トークン急増',dau_spike:'DAU急増',dau_drop:'DAU急減'};el.className='alerts';el.innerHTML=visible.map(row=>`<article><b>${labels[row.type]||esc(row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}（基準 ${fmt.format(row.baseline)}）</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
 function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.active_users[p])}</td>`).join('')}${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td></tr>`).join('')}
+function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="5" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td></tr>`).join('')}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
+function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
 load();

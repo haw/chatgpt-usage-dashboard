@@ -6,6 +6,13 @@ from app.web import app
 HEADER = "Start Time,End Time,Chat,Codex,Work\n"
 
 
+def test_index_has_workspace_and_individual_tabs():
+    response = TestClient(app).get("/")
+    assert response.status_code == 200
+    assert "全体分析" in response.text
+    assert "個人別分析" in response.text
+
+
 def test_import_endpoint(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     active = HEADER + "2026-09-01,2026-09-02,5,3,1\n"
