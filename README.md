@@ -1,110 +1,74 @@
 # ChatGPT Usage Dashboard
 
-ChatGPTワークスペースのAnalytics APIから直近7日間の利用集計を手動取得し、ユーザー別の利用状況と異常兆候を確認するローカルダッシュボードです。
+ChatGPT管理画面から出力した集計CSVをアップロードし、ワークスペース全体の利用推移と異常兆候を確認するローカルダッシュボードです。個人情報、監査ログ、会話本文は扱いません。
 
-> このダッシュボードはAnalytics APIの集計データを扱います。監査ログ、会話本文、情報漏えいの検査を代替するものではありません。
+## 起動と取込
 
-## 必要なもの
-
-- Docker Engine
-- Docker Compose v2
-- ChatGPTのworkspace-scoped Admin APIキー
-- キーの `enterprise.analytics.usage.read` 権限
-- ワークスペースでのDaily Usage Analytics API有効化
-
-## セットアップ
+必要なものはDocker EngineとDocker Compose v2です。Admin APIキーは不要です。
 
 ```bash
-cp .env.example .env
+docker compose up -d --build dashboard
 ```
 
-`.env` にAdminキーを設定します。
+[http://localhost:8000](http://localhost:8000) を開き、同じ期間について管理画面から出力した次の2ファイルを選択します。
 
-```dotenv
-OPENAI_ADMIN_KEY=your-admin-key
+1. 1日のアクティブユーザー数CSV
+2. トークン消費量CSV
+
+「アップロードして分析」を押すと、既存データへ日付単位で上書き保存されます。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
+
+## 表示と異常検知
+
+- Chat、Codex、Work別の日次アクティブユーザー
+- 製品別の日次トークンと期間集計
+- 直前7日間の中央値・MADに基づくトークン急増とDAU急増／急減
+- 日次の元データ一覧
+
+製品別DAUには同じ利用者が重複する可能性があるため合算しません。KPIは「最新日の製品別最大DAU」を参考値として表示します。検出結果は統計的な兆候であり、不正利用を断定するものではありません。休日、全社イベント、製品展開などと合わせて確認してください。
+
+## CSV要件
+
+両ファイルとも次の列をこの順序で持つUTF-8 CSVを受け付けます。BOM付きUTF-8にも対応します。
+
+```csv
+Start Time,End Time,Chat,Codex,Work
+2026-09-01,2026-09-02,5,3,1
 ```
 
-認証済みChatGPT Admin APIリファレンスに記載されたURLが既定値と異なる場合だけ、次も変更します。
+- 数値は0以上の整数
+- 日付の重複なし
+- 両ファイルの日付集合が一致
+- 1ファイル5 MiB以下
 
-```dotenv
-OPENAI_ANALYTICS_URL=https://api.chatgpt.com/v1/analytics/usage
-```
-
-## 利用方法
-
-初回ビルド:
-
-```bash
-make build
-```
-
-過去7日分を手動収集:
-
-```bash
-make collect
-```
-
-収集範囲は「UTCで今日の0時を終端とした、完了済みの直近7日間」です。コマンドを再実行しても、同一の日付・ユーザー・製品の正規化レコードは重複しません。
-
-ダッシュボード起動:
-
-```bash
-make up
-```
-
-[http://localhost:8000](http://localhost:8000) を開きます。停止は `make down`、ログ確認は `make logs` です。
-
-任意の日数を収集する場合:
-
-```bash
-docker compose run --rm collector collect --days 14
-```
+入力全体の検証に成功した後だけ保存するため、不正なCSVで既存の正規化データは変更されません。
 
 ## 保存データ
 
-すべて `./data` に保存されます。
+すべて `./data` に保存され、Git管理対象外です。
 
 ```text
 data/
-├── raw/<run-id>/page-0001.json  # APIの未加工応答
-├── normalized/usage.jsonl       # 画面用の正規化データ
-└── state/collection.json        # 最終収集状態
+├── raw/<run-id>/active-users.csv
+├── raw/<run-id>/tokens.csv
+├── normalized/workspace-usage.jsonl
+└── state/import.json
 ```
 
-`.env` と `data/` の内容はGit管理対象外です。
-
-## エラー時の確認
-
-- `401` / `403`: キーがworkspace-scopedか、`enterprise.analytics.usage.read` があるか、APIが有効か確認
-- `404`: 認証済みAdmin APIリファレンスでURLを確認し、`OPENAI_ANALYTICS_URL` を更新
-- 「no rows matched」: `data/raw/<run-id>/` のフィールド構成を確認し、正規化処理のfixtureを更新
-
-APIのURL・スキーマ・利用可否はOpenAI側で変更され得ます。公式の認証済みAdmin APIリファレンスを正としてください。
+同じ日付を再取込した場合、正規化データは最新値へ置換されます。元CSVはrunごとに保存されます。
 
 ## テスト
 
 ```bash
-make test
+docker compose run --rm --no-deps test
 ```
 
-Adminキーやネットワークを使わず、fixtureに対してAPIクライアント、正規化、保存、異常判定を検証します。
+実データやネットワークを使わず、fixtureに対してCSV検証、冪等保存、異常判定、アップロードAPIを検証します。
 
 ## ドキュメント
 
 - [MVP仕様書](docs/SPECIFICATION.md)
 - [タスクリスト](docs/TASKS.md)
 
-## ローカルコミット履歴
-
-この実行環境では予約済みの `.git` が読み取り専用だったため、履歴は `.git-local` に保存しています。
-
-```bash
-./git-local.sh log --oneline
-./git-local.sh status
-```
-
-通常のGit環境へ移した後は、標準の `.git` を利用できます。
-
 ## 本番化の方針
 
-収集コンテナは同じ `python -m app collect --days 7` をECSタスクとして実行できます。本番化ではLocalStorageをS3実装へ差し替え、EventBridge Scheduler、Cognito認証、CloudFront/API Gatewayを追加します。
+本番ではLocalStorageをS3実装へ差し替え、Cognito等の認証を追加します。取込頻度が低く速度要件も高くないため、常時起動のECS Serviceより、S3 + Lambda/API Gateway + CloudFrontのサーバーレス構成の方が一般に低コストです。CSVの定期取得手段を用意できた場合のみEventBridge Schedulerを追加します。
