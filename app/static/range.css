@@ -149,15 +149,10 @@
 .kpi-link:hover, .kpi-link:focus-visible { box-shadow:0 14px 34px #1c2c2322; transform:translateY(-1px) }
 .kpi-link .kpi-arrow { position:absolute; right:14px; bottom:14px; color:var(--muted); font-size:1.1rem }
 .kpi-link.all-clear strong { color:var(--green) }
-.signal-delta p { margin:0 0 4px }
-.signal-delta .delta-title { font-weight:700 }
-.signal-delta ul { list-style:none; margin:0 0 8px; padding:0; display:grid; gap:3px }
-.signal-delta li { font-size:.8rem }
-.signal-delta li.removed { color:var(--muted) }
-.signal-delta li b { margin-right:6px }
-.sensitivity-control .help-content { white-space:normal; text-align:left }
-.signal-delta li { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; padding:3px 6px; border-radius:6px }
-.signal-delta li.added { background:#fff1ec; font-weight:700; border-left:3px solid var(--red) }
+.detect-mark path { fill:#d9a9a2 }
+.detect-mark.high path { fill:var(--red) }
+.detect-mark.new path { fill:var(--red); stroke:#fff; stroke-width:1.5 }
+.detect-halo { fill:none; stroke:var(--red); stroke-width:2; animation:halo 2.4s ease-out forwards }
+@keyframes halo { 0% { r:4; opacity:1 } 100% { r:14; opacity:0 } }
 .tag-new { display:inline-block; padding:1px 7px; border-radius:999px; background:var(--red); color:white; font-size:.68rem; font-weight:800 }
-@keyframes added { 0% { background:#ffd9d0 } 100% { background:#fff1ec } }
-.signal-delta li.added { animation:added 2s ease-out }
+.analysis-legend .mark { width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:9px solid var(--red); background:none; box-shadow:none; border-radius:0 }
