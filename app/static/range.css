@@ -158,8 +158,6 @@
 .sensitivity-control .help-content { white-space:normal; text-align:left }
 .signal-delta li { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; padding:3px 6px; border-radius:6px }
 .signal-delta li.added { background:#fff1ec; font-weight:700; border-left:3px solid var(--red) }
-.signal-delta li.removed { color:var(--muted); text-decoration:line-through; text-decoration-color:#c8cdc9 }
-.signal-delta li.removed small { text-decoration:none }
 .tag-new { display:inline-block; padding:1px 7px; border-radius:999px; background:var(--red); color:white; font-size:.68rem; font-weight:800 }
 @keyframes added { 0% { background:#ffd9d0 } 100% { background:#fff1ec } }
 .signal-delta li.added { animation:added 2s ease-out }
