@@ -224,15 +224,14 @@ function render(data) {
   document.querySelector('#updated').textContent = state.completed_at ? `最終取込 ${new Date(state.completed_at).toLocaleString('ja-JP')}` : '未取込';
   renderLineChart('#dau-chart', data.daily, 'active_users');
   renderLineChart('#token-chart', data.daily, 'tokens');
-  const added = renderDelta(data.alerts || []);
-  renderAnalysisChart(data.analysis || [], '#analysis-chart', `${selected.start_date !== availablePeriod.start_date || selected.end_date !== availablePeriod.end_date ? '選択期間内の同じ区分の日' : '同じ区分の直前28日'}から計算`, {alerts:data.alerts || [], added});
+  renderAnalysisChart(data.analysis || [], '#analysis-chart', `${selected.start_date !== availablePeriod.start_date || selected.end_date !== availablePeriod.end_date ? '選択期間全体の中央値とMAD' : '全期間の直前最大7日（最低5日）'}から計算`);
   detectorLabels = Object.fromEntries((data.detectors || []).map(d => [d.id, d.label]));
   currentDaily = data.daily || [];
   renderDetectorErrors(data.detector_errors || []);
   renderDetectorList(data.detectors || []);
   renderDayOverrideList();
   document.querySelector('#pending-note').textContent = data.pending_days ? `判定保留 ${fmt.format(data.pending_days)}日（同じ区分の基準データが不足）` : '';
-  currentAlerts = data.alerts || [];
+  renderAlerts(data.alerts);
   renderTable(data.daily, data.alerts);
 }
 
@@ -377,9 +376,7 @@ function renderQuotaEstimate(rows) {
   document.querySelector('#individual-support-reason').textContent = rows.length ? reason : 'データ取込後に判定';
 }
 
-function strongest(list){const rank={high:0,medium:1,info:2};return [...list].sort((x,y)=>rank[x.severity]-rank[y.severity]||((y.value/(y.baseline||1))-(x.value/(x.baseline||1))))[0]}
-
-function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null, markers = null) {
+function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null) {
   const el = document.querySelector(selector);
   if (!rows.length) {
     el.className = 'chart empty';
@@ -407,21 +404,9 @@ function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null, ma
   const actualDots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row.value)}" r="${row.is_anomaly?6:row.is_notable?4.5:3}" class="${row.is_anomaly?'analysis-anomaly':row.is_notable?'analysis-notable':'analysis-dot'}"><title>${row.date}${row.kind==='holiday'?'（休日）':''} 実測: ${fmt.format(row.value)}${row.baseline === null?'（判定保留: 同じ区分の基準不足）':` / 中央値: ${fmt.format(row.baseline)} / 判定ライン: ${fmt.format(row.threshold)}`}</title></circle>`).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length/10));
   const labels = rows.map((row,index) => index%labelStep===0 || index===rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label${row.kind==='holiday'?' holiday':''}" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
-  // Detected days (any detector) as marks on the time axis; newly detected ones are emphasised.
-  let marks = '';
-  if (markers) {
-    const strong = markers.alerts.filter(a => a.severity !== 'info');
-    marks = rows.map((row,index) => {
-      const here = strong.filter(a => a.date === row.date);
-      if (!here.length) return '';
-      const top = strongest(here);
-      const isNew = markers.added.has(row.date);
-      const title = `${row.date} ${signalSentence(top)}${here.length > 1 ? ` ほか${here.length-1}件` : ''}`;
-      return `<g class="detect-mark${isNew?' new':''}${top.severity==='high'?' high':''}"><title>${esc(title)}</title>${isNew?`<circle cx="${x(index)}" cy="${height-32}" r="9" class="detect-halo"/>`:''}<path d="M ${x(index)-5} ${height-27} L ${x(index)+5} ${height-27} L ${x(index)} ${height-36} Z"/></g>`;
-    }).join('');
-  }
-  const description = hint || '同じ区分の直前28日から計算';
-  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="総トークン異常分析グラフ">${grid}${path('threshold','analysis-threshold-line')}${path('baseline','analysis-baseline-line')}${path('value','analysis-actual-line')}${actualDots}${marks}${labels}</svg><small class="drag-hint">${description}</small>`;
+  const narrowed = selector === '#analysis-chart' && availablePeriod.start_date && rows.length && (rows[0].date !== availablePeriod.start_date || rows.at(-1).date !== availablePeriod.end_date);
+  const description = hint || `${narrowed?'選択期間全体の中央値とMAD':'全期間の直前最大7日（最低5日）'}から計算`;
+  el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="総トークン異常分析グラフ">${grid}${path('threshold','analysis-threshold-line')}${path('baseline','analysis-baseline-line')}${path('value','analysis-actual-line')}${actualDots}${labels}</svg><small class="drag-hint">${description}</small>`;
 }
 
 function renderLineChart(selector, rows, key, rangeEnabled = true) {
@@ -510,10 +495,14 @@ function signalSentence(a){switch(a.type){
   case 'stale_data':return a.reason;
   default:return `${detectorLabels[a.detector]||a.type}: ${a.reason}`}}
 function signalBadge(date,alerts){const rows=alerts.filter(a=>a.date===date);if(!rows.length)return '<td></td>';const rank={high:0,medium:1,info:2};const top=rows.reduce((best,row)=>rank[row.severity]<rank[best]?row.severity:best,'info');return `<td><span class="signal-badge severity ${esc(top)}" title="${esc(rows.map(signalSentence).join('\n'))}">${rows.length}</span></td>`}
-// One line under the chart: how many days are detected now and, right after a
-// sensitivity change, how many of them are new. The days themselves are marked on the chart.
-function renderDelta(alerts){const el=document.querySelector('#signal-delta');const current=signalDates(alerts);const state=previousSignalState;previousSignalState=null;const changed=state&&state.label!==sensitivityLabel(sensitivity);const added=new Set(changed?[...current].filter(d=>!state.dates.has(d)):[]);const dropped=changed?[...state.dates].filter(d=>!current.has(d)).length:0;if(!current.size&&!changed){el.className='signal-delta hidden';return added}
-el.innerHTML=changed?`感度を ${esc(state.label)} → ${esc(sensitivityLabel(sensitivity))} に変更: 検出 ${current.size}日${added.size?`、<span class="tag-new">新たに ${added.size}日</span>（グラフ上で強調）`:dropped?`（${dropped}日減）`:'（変化なし）'}`:`検出 ${current.size}日 — グラフ下の印にカーソルを合わせると内容が出ます`;el.className='signal-delta';return added}
+// The list under the anomaly chart shows every day detected at the current
+// sensitivity and why; after a change, newly detected days are highlighted.
+function strongest(list){const rank={high:0,medium:1,info:2};return [...list].sort((x,y)=>rank[x.severity]-rank[y.severity]||((y.value/(y.baseline||1))-(x.value/(x.baseline||1))))[0]}
+function renderDelta(alerts){const el=document.querySelector('#signal-delta');const current=signalDates(alerts);const state=previousSignalState;previousSignalState=null;const changed=state&&state.label!==sensitivityLabel(sensitivity);const added=new Set(changed?[...current].filter(d=>!state.dates.has(d)):[]);const dropped=changed?[...state.dates].filter(d=>!current.has(d)).length:0;if(!current.size){el.className='signal-delta hidden';return added}
+const items=[...current].sort().reverse().map(d=>{const strong=alerts.filter(x=>x.date===d&&x.severity!=='info');const a=strongest(strong);return `<li class="${added.has(d)?'added':''}"><b>${dateLabel(d)}</b> ${esc(signalSentence(a))}${a.threshold!=null?` <small class="muted">判定ライン ${compact(a.threshold)}</small>`:''}${strong.length>1?` <small class="muted">ほか${strong.length-1}件</small>`:''}${added.has(d)?'<span class="tag-new">新たに検出</span>':''}</li>`});
+const title=changed?`感度を ${esc(state.label)} → ${esc(sensitivityLabel(sensitivity))} に変更: 検出 ${current.size}日${added.size?`（<span class="tag-new">新たに ${added.size}日</span>）`:dropped?`（${dropped}日減）`:'（変化なし）'}`:`現在の判定で検出された日: ${current.size}日`;
+el.innerHTML=`<p class="delta-title">${title}</p><ul>${items.join('')}</ul>`;el.className='signal-delta';return added}
+function renderAlerts(rows){currentAlerts=rows;renderDelta(rows)}
 function renderTable(rows,alerts=[]){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="10" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${signalBadge(row.date,alerts)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
