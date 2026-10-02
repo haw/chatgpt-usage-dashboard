@@ -1,9 +1,77 @@
+import json
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.web import app
 
 
 HEADER = "Start Time,End Time,Chat,Codex,Work\n"
+
+
+def analytics_json(kind, days, value=10):
+    return json.dumps({
+        "chart_key": kind,
+        "series": [{"column": product} for product in ("Chat", "Codex", "Work")],
+        "rows": [{"Start Time": day, "End Time": day, "Chat": value, "Codex": 0, "Work": 0}
+                 for day in days],
+    }).encode()
+
+
+@pytest.mark.parametrize("first", ["tokens", "active-users"])
+def test_single_json_is_analyzed_immediately_and_preserves_other_metric(tmp_path, monkeypatch, first):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    second = "active-users" if first == "tokens" else "tokens"
+
+    def upload(kind, days, value=10):
+        response = client.post("/api/import", files=[
+            ("files", ("arbitrary-name.json", analytics_json(kind, days, value), "application/json")),
+        ])
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    first_metric = "active_users" if first == "active-users" else "tokens"
+    second_metric = "tokens" if first == "active-users" else "active_users"
+    initial = upload(first, ["2026-09-01", "2026-09-02"])
+    assert len(initial["daily"]) == 2
+    assert initial["daily"][0][first_metric]["chat"] == 10
+    assert second_metric not in initial["daily"][0]
+    assert initial["kpis"]["total_tokens"] == (20 if first == "tokens" else None)
+    assert len(initial["analysis"]) == (2 if first == "tokens" else 0)
+    history = client.get("/api/imports").json()["imports"]
+    assert len(history) == 1
+    assert history[0]["tokens_bytes" if first == "tokens" else "active_users_bytes"] > 0
+    assert history[0]["active_users_bytes" if first == "tokens" else "tokens_bytes"] is None
+
+    combined = upload(second, ["2026-09-02", "2026-09-03"], 5)
+    assert len(combined["daily"]) == 3
+    overlap = combined["daily"][1]
+    assert overlap[first_metric]["chat"] == 10
+    assert overlap[second_metric]["chat"] == 5
+    updated = upload(first, ["2026-09-02"], 30)
+    assert updated["daily"][1][first_metric]["chat"] == 30
+    assert updated["daily"][1][second_metric]["chat"] == 5
+    assert client.get("/api/dashboard").json()["daily"] == updated["daily"]
+    isolated = client.get("/api/dashboard?start_date=2026-09-01&end_date=2026-09-01").json()
+    assert len(isolated["daily"]) == 1
+    assert isolated["kpis"]["total_tokens"] == (10 if first == "tokens" else None)
+
+
+def test_json_batch_accepts_different_periods_and_validates_before_saving(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    tokens = ("files", ("tokens.json", analytics_json("tokens", ["2026-09-01"]), "application/json"))
+    invalid = ("files", ("bad.json", b'{"chart_key":"active-users"}', "application/json"))
+    assert client.post("/api/import", files=[tokens, invalid]).status_code == 400
+    assert client.get("/api/dashboard").json()["daily"] == []
+    assert client.get("/api/imports").json()["imports"] == []
+    active = ("files", ("active.json", analytics_json("active-users", ["2026-09-03"]), "application/json"))
+    result = client.post("/api/import", files=[tokens, active])
+    assert result.status_code == 200, result.text
+    assert len(result.json()["daily"]) == 2
+    assert result.json()["kpis"]["daily_average_tokens"] == 10
+    assert client.get("/api/imports").json()["imports"][0]["days"] == 2
 
 
 def test_index_has_workspace_and_individual_tabs():

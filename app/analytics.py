@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from datetime import date, timedelta
 from statistics import median
 from typing import Any
 
@@ -135,23 +136,25 @@ def build_workspace_dashboard(
     period_wide = start_date is not None or end_date is not None
     alerts = detect_workspace_alerts(selected, period_wide=period_wide)
     analysis = build_token_analysis(selected, period_wide=period_wide)
-    total_tokens = sum(row["tokens"]["total"] for row in selected)
-    latest = selected[-1] if selected else None
+    token_rows = [row for row in selected if row.get("tokens") is not None]
+    dau_rows = [row for row in selected if row.get("active_users") is not None]
+    total_tokens = sum(row["tokens"]["total"] for row in token_rows)
+    latest = dau_rows[-1] if dau_rows else None
     products = []
     for product in PRODUCTS:
         products.append({
             "product": product,
-            "tokens": sum(row["tokens"][product] for row in selected),
+            "tokens": sum(row["tokens"][product] for row in token_rows) if token_rows else None,
             "average_active_users": round(
-                sum(row["active_users"][product] for row in selected) / len(selected), 1
-            ) if selected else 0,
+                sum(row["active_users"][product] for row in dau_rows) / len(dau_rows), 1
+            ) if dau_rows else None,
         })
     return {
         "state": state,
         "kpis": {
-            "latest_max_product_dau": max(latest["active_users"].values()) if latest else 0,
-            "total_tokens": total_tokens,
-            "daily_average_tokens": round(total_tokens / len(selected)) if selected else 0,
+            "latest_max_product_dau": max(latest["active_users"].values()) if latest else None,
+            "total_tokens": total_tokens if token_rows else None,
+            "daily_average_tokens": round(total_tokens / len(token_rows)) if token_rows else None,
             "alerts": len(alerts),
         },
         "daily": selected,
@@ -176,6 +179,7 @@ def build_token_analysis(
     period_wide: bool = False,
 ) -> list[dict[str, Any]]:
     """Build total-token observations with the same rolling threshold used by alerts."""
+    rows = [row for row in rows if row.get("tokens") is not None]
     result: list[dict[str, Any]] = []
     period_center: float | None = None
     period_threshold: float | None = None
@@ -189,7 +193,8 @@ def build_token_analysis(
             continue
         if end_date and row["date"] > end_date:
             continue
-        history = rows[max(0, index - 7):index]
+        cutoff = (date.fromisoformat(row["date"]) - timedelta(days=7)).isoformat()
+        history = [previous for previous in rows[max(0, index - 7):index] if previous["date"] >= cutoff]
         center: float | None = None
         threshold: float | None = None
         if period_wide:
@@ -215,8 +220,12 @@ def detect_workspace_alerts(rows: list[dict[str, Any]], period_wide: bool = Fals
     alerts: list[dict[str, Any]] = []
     metrics = [("tokens", "total"), *(('tokens', p) for p in PRODUCTS), *(('active_users', p) for p in PRODUCTS)]
     for group, product in metrics:
-        for index, row in enumerate(rows):
-            history = rows if period_wide else rows[max(0, index - 7):index]
+        metric_rows = [row for row in rows if row.get(group) is not None]
+        for index, row in enumerate(metric_rows):
+            cutoff = (date.fromisoformat(row["date"]) - timedelta(days=7)).isoformat()
+            history = metric_rows if period_wide else [
+                previous for previous in metric_rows[max(0, index - 7):index] if previous["date"] >= cutoff
+            ]
             if (not period_wide and len(history) < 5) or not history:
                 continue
             values = [previous[group][product] for previous in history]

@@ -1,4 +1,5 @@
 const fmt = new Intl.NumberFormat('ja-JP');
+const formatOptional = value => value == null ? '—' : fmt.format(value);
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const products = ['chat', 'codex', 'work'];
 const colors = {chat:'#176b4d', codex:'#3478a4', work:'#d49a31'};
@@ -48,7 +49,7 @@ workspaceFiles.addEventListener('change', async () => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     render(data);
-    setMessage(data.import_notice || `${data.state.imported_days}日分を取り込みました。`, 'success');
+    setMessage(`${data.state.imported_days}日分を取り込みました。`, 'success');
   } catch (error) {
     setMessage(error.message, 'error');
   } finally {
@@ -150,15 +151,15 @@ function render(data) {
   document.querySelector('#reset-range').disabled = !selected.start_date || (
     selected.start_date === availablePeriod.start_date && selected.end_date === availablePeriod.end_date
   );
-  document.querySelector('#dau').textContent = fmt.format(data.kpis.latest_max_product_dau);
-  document.querySelector('#total').textContent = fmt.format(data.kpis.total_tokens);
-  document.querySelector('#average').textContent = fmt.format(data.kpis.daily_average_tokens);
+  document.querySelector('#dau').textContent = formatOptional(data.kpis.latest_max_product_dau);
+  document.querySelector('#total').textContent = formatOptional(data.kpis.total_tokens);
+  document.querySelector('#average').textContent = formatOptional(data.kpis.daily_average_tokens);
   document.querySelector('#alert-count').textContent = fmt.format(data.kpis.alerts);
   document.querySelector('#period').textContent = selected.start_date ? `${selected.start_date} – ${selected.end_date}` : 'データなし';
   document.querySelector('#updated').textContent = state.completed_at ? `最終取込 ${new Date(state.completed_at).toLocaleString('ja-JP')}` : '未取込';
   renderLineChart('#dau-chart', data.daily, 'active_users');
   renderLineChart('#token-chart', data.daily, 'tokens');
-  renderAnalysisChart(data.analysis || []);
+  renderAnalysisChart(data.analysis || [], '#analysis-chart', `${selected.start_date !== availablePeriod.start_date || selected.end_date !== availablePeriod.end_date ? '選択期間全体の中央値とMAD' : '全期間の直前最大7日（最低5日）'}から計算`);
   renderAlerts(data.alerts);
   renderTable(data.daily);
 }
@@ -320,7 +321,7 @@ function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null) {
 
 function renderLineChart(selector, rows, key, rangeEnabled = true) {
   const el = document.querySelector(selector);
-  if (!rows.length) {
+  if (!rows.some(row => row[key] != null)) {
     el.className = 'chart empty';
     el.textContent = '指定期間にデータがありません';
     return;
@@ -328,7 +329,7 @@ function renderLineChart(selector, rows, key, rangeEnabled = true) {
   el.className = 'chart line-chart';
   const width = 1000, height = 260, left = 64, right = 18, top = 18, bottom = 42;
   const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const max = Math.max(1, ...rows.flatMap(row => products.map(product => row[key][product])));
+  const max = Math.max(1, ...rows.filter(row => row[key] != null).flatMap(row => products.map(product => row[key][product])));
   const x = index => left + (rows.length === 1 ? plotWidth / 2 : index * plotWidth / (rows.length - 1));
   const y = value => top + plotHeight - value / max * plotHeight;
   const grid = [0, .25, .5, .75, 1].map(part => {
@@ -336,9 +337,10 @@ function renderLineChart(selector, rows, key, rangeEnabled = true) {
     return `<line x1="${left}" y1="${gy}" x2="${width-right}" y2="${gy}" class="grid-line"/><text x="${left-8}" y="${gy+4}" class="axis-label" text-anchor="end">${compact(max*part)}</text>`;
   }).join('');
   const series = products.map(product => {
-    const points = rows.map((row,index) => `${x(index)},${y(row[key][product])}`).join(' ');
-    const dots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row[key][product])}" r="3" fill="${colors[product]}"><title>${row.date} ${product.toUpperCase()}: ${fmt.format(row[key][product])}</title></circle>`).join('');
-    return `<polyline points="${points}" fill="none" stroke="${colors[product]}" stroke-width="3" vector-effect="non-scaling-stroke"/>${dots}`;
+    const path = rows.map((row,index) => row[key] == null ? '' :
+      `${index === 0 || rows[index-1][key] == null ? 'M' : 'L'} ${x(index)},${y(row[key][product])}`).join(' ');
+    const dots = rows.map((row,index) => row[key] == null ? '' : `<circle cx="${x(index)}" cy="${y(row[key][product])}" r="3" fill="${colors[product]}"><title>${row.date} ${product.toUpperCase()}: ${fmt.format(row[key][product])}</title></circle>`).join('');
+    return `<path d="${path}" fill="none" stroke="${colors[product]}" stroke-width="3" vector-effect="non-scaling-stroke"/>${dots}`;
   }).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length / 10));
   const labels = rows.map((row,index) => index % labelStep === 0 || index === rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
@@ -383,12 +385,12 @@ async function openHistory(){const dialog=document.querySelector('#history-dialo
 function renderHistory(rows){const table=document.querySelector('#history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存されたJSON履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.active_users_bytes,row.active_users_sha256)}</td><td>${historyFile(row.tokens_bytes,row.tokens_sha256)}</td></tr>`).join('')}
 function renderIndividualHistory(rows){const table=document.querySelector('#individual-history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存された個人JSON履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.user_label)}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.bytes,row.sha256)}</td></tr>`).join('')}
 function fileSize(bytes){if(bytes<1024)return `${fmt.format(bytes)} B`;return `${new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(bytes/1024)} KiB`}
-function historyFile(bytes,hash){const short=`${hash.slice(0,12)}…${hash.slice(-12)}`;return `<span class="file-size">${fileSize(bytes)}</span><button type="button" class="hash-copy" data-hash="${esc(hash)}" aria-label="SHA-256をコピー" title="${esc(hash)}"><code>${short}</code><span class="material-icons copy-icon" aria-hidden="true">content_copy</span><span class="copy-feedback" role="status">コピーしました</span></button>`}
+function historyFile(bytes,hash){if(bytes == null || !hash)return '—';const short=`${hash.slice(0,12)}…${hash.slice(-12)}`;return `<span class="file-size">${fileSize(bytes)}</span><button type="button" class="hash-copy" data-hash="${esc(hash)}" aria-label="SHA-256をコピー" title="${esc(hash)}"><code>${short}</code><span class="material-icons copy-icon" aria-hidden="true">content_copy</span><span class="copy-feedback" role="status">コピーしました</span></button>`}
 async function copyText(value){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);return}const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove()}
 function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=row.type==='token_spike'?signalFilters.tokens:signalFilters.dau;const service=row.product||'overall';return signalVisible&&serviceFilters[service]});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const labels={token_spike:'トークン急増',dau_spike:'DAU急増',dau_drop:'DAU急減'};el.className='alerts';el.innerHTML=visible.map(row=>`<article><b>${labels[row.type]||esc(row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}（基準 ${fmt.format(row.baseline)}）</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
-function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.active_users[p])}</td>`).join('')}${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td></tr>`).join('')}
-function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${fmt.format(row.tokens[p])}</td>`).join('')}<td><strong>${fmt.format(row.tokens.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
+function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
+function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}

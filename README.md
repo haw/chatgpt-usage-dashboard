@@ -10,12 +10,12 @@ ChatGPT管理画面から出力した集計JSONをアップロードし、ワー
 docker compose up -d --build dashboard
 ```
 
-[http://localhost:8000](http://localhost:8000) を開き、「アップロードして分析」ボタンからJSONを1つずつ、または2つまとめて選びます。1つだけの場合は保存され、同じ期間のもう一方を取り込んだ時点で分析に反映されます。2つまとめて選ぶ場合、選択順は問いません。
+[http://localhost:8000](http://localhost:8000) を開き、「アップロードして分析」ボタンからJSONを1つずつ、または2つまとめて選びます。DAU・トークンは独立しており、1つだけでもすぐグラフ・分析に反映されます。期間が異なるファイルも取り込めます。2つまとめて選ぶ場合、選択順は問いません。
 
 1. 1日のアクティブユーザー数JSON
 2. トークンJSON
 
-両方の種類がそろうと、既存データへ日付単位で上書き保存されます。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
+アップロードした指標だけを日付単位で更新し、もう一方の指標は保持します。未登録の指標は「—」で表示し、平均・異常判定から除外します。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
 
 コンテナは非rootユーザーで動作します。ローカルの `data/` をホストユーザーの所有に合わせるため、Composeは既定でUID/GID `1000:1000` を使います。異なる場合は起動前に `LOCAL_UID` と `LOCAL_GID` を設定してください（例: `LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up -d --build dashboard`）。
 
@@ -57,7 +57,7 @@ docker compose up -d --build dashboard
 }
 ```
 
-取込時はJSON構文、`chart_key`、系列、開始・終了日、日付の重複、0以上の整数、2種類がそろった場合の日付一致を検証します。日付は `YYYY-MM-DD` とISO形式の日時を受け付けます。1ファイル5 MiB以下です。不正なJSONで既存の分析データは変更されません。`summary` は部分集計を含む場合があるため、日次分析には `rows` だけを使います。
+取込時はJSON構文、`chart_key`、系列、開始・終了日、日付の重複、0以上の整数を検証します。日付は `YYYY-MM-DD` とISO形式の日時を受け付けます。1ファイル5 MiB以下です。不正なJSONで既存の分析データは変更されません。`summary` は部分集計を含む場合があるため、日次分析には `rows` だけを使います。
 
 画面ではJSONを受け付けます。旧CSV形式も既存の取込APIとの互換性のため、2ファイルを同じ形式に揃えた場合に限りサーバー側で受け付けます。
 

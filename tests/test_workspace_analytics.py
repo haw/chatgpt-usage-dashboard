@@ -1,6 +1,29 @@
 from app.analytics import build_workspace_dashboard, detect_workspace_alerts
 
 
+def test_missing_metrics_are_not_zero_or_baseline_samples():
+    rows = [usage(day) for day in range(1, 9)]
+    for row in rows[:7]:
+        del row["active_users"]
+    rows[-1]["tokens"] = {"chat": 1000, "codex": 0, "work": 0, "total": 1000}
+    result = build_workspace_dashboard(rows, {})
+    assert any(alert["type"] == "token_spike" for alert in result["alerts"])
+    assert not any(alert["type"].startswith("dau") for alert in result["alerts"])
+    assert result["products"][0]["average_active_users"] == 5
+    zero = {"date": "2026-09-09", "tokens": {"chat": 0, "codex": 0, "work": 0, "total": 0}}
+    result = build_workspace_dashboard([zero], {})
+    assert result["kpis"]["total_tokens"] == 0
+    assert result["kpis"]["latest_max_product_dau"] is None
+    assert result["analysis"][0]["value"] == 0
+
+
+def test_missing_days_do_not_extend_rolling_baseline_beyond_seven_days():
+    rows = [usage(day) for day in range(1, 8)] + [usage(20, chat_tokens=1000)]
+    result = build_workspace_dashboard(rows, {})
+    assert result["analysis"][-1]["baseline"] is None
+    assert not [alert for alert in result["alerts"] if alert["date"] == "2026-09-20"]
+
+
 def usage(day: int, chat_tokens: int = 100, chat_dau: int = 5) -> dict:
     tokens = {"chat": chat_tokens, "codex": 20, "work": 10}
     return {

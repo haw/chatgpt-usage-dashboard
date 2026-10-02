@@ -6,6 +6,23 @@ from types import SimpleNamespace
 from app.storage import LocalStorage, S3Storage, create_storage
 
 
+def test_independent_workspace_metrics_and_single_file_history_on_both_stores(tmp_path):
+    for storage in (LocalStorage(tmp_path), S3Storage("test", client=FakeS3Client())):
+        storage.merge_workspace_usage([{"date": "2026-09-01", "tokens": {"total": 10}}])
+        storage.merge_workspace_usage([{"date": "2026-09-01", "active_users": {"chat": 5}}])
+        storage.merge_workspace_usage([{"date": "2026-09-01", "tokens": {"total": 0}}])
+        assert storage.load_workspace_usage() == [
+            {"date": "2026-09-01", "tokens": {"total": 0}, "active_users": {"chat": 5}},
+        ]
+        payload = b'{"rows":[{"Start Time":"2026-09-01"}]}'
+        run_id = storage.create_run()
+        storage.save_raw_json(run_id, "tokens.json", payload)
+        history = storage.list_import_history()
+        assert len(history) == 1
+        assert history[0]["tokens_sha256"] == hashlib.sha256(payload).hexdigest()
+        assert history[0]["active_users_bytes"] is None
+
+
 class FakeS3Client:
     class exceptions:
         class NoSuchKey(Exception):

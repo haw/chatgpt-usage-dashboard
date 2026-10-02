@@ -40,7 +40,6 @@ class Storage(Protocol):
     def save_raw_page(self, run_id: str, page_number: int, payload: Any) -> Any: ...
     def save_raw_csv(self, run_id: str, name: str, payload: bytes) -> Any: ...
     def save_raw_json(self, run_id: str, name: str, payload: bytes) -> Any: ...
-    def load_latest_workspace_json(self, name: str) -> bytes | None: ...
     def list_import_history(self) -> list[dict[str, Any]]: ...
     def load_workspace_usage(self) -> list[dict[str, Any]]: ...
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int: ...
@@ -91,15 +90,6 @@ class LocalStorage:
         path.write_bytes(payload)
         return path
 
-    def load_latest_workspace_json(self, name: str) -> bytes | None:
-        if name not in {"active-users.json", "tokens.json"}:
-            raise ValueError("unsupported workspace JSON name")
-        for run_dir in sorted(self.raw_dir.iterdir(), key=lambda item: item.name, reverse=True):
-            path = run_dir / name
-            if run_dir.is_dir() and path.is_file():
-                return path.read_bytes()
-        return None
-
     def list_import_history(self) -> list[dict[str, Any]]:
         history: list[dict[str, Any]] = []
         for run_dir in self.raw_dir.iterdir():
@@ -107,10 +97,10 @@ class LocalStorage:
                 continue
             active_path = _existing_path(run_dir, "active-users.json", "active-users.csv")
             token_path = _existing_path(run_dir, "tokens.json", "tokens.csv")
-            if not active_path.exists() or not token_path.exists():
+            if not active_path.exists() and not token_path.exists():
                 continue
             try:
-                dates = _import_dates(active_path)
+                dates = [day for path in (active_path, token_path) if path.exists() for day in _import_dates(path)]
                 imported_at = datetime.strptime(
                     run_dir.name, "%Y%m%dT%H%M%S.%fZ"
                 ).replace(tzinfo=timezone.utc).isoformat()
@@ -122,10 +112,10 @@ class LocalStorage:
                 "start_date": min(dates) if dates else None,
                 "end_date": max(dates) if dates else None,
                 "days": len(set(dates)),
-                "active_users_bytes": active_path.stat().st_size,
-                "tokens_bytes": token_path.stat().st_size,
-                "active_users_sha256": hashlib.sha256(active_path.read_bytes()).hexdigest(),
-                "tokens_sha256": hashlib.sha256(token_path.read_bytes()).hexdigest(),
+                "active_users_bytes": active_path.stat().st_size if active_path.exists() else None,
+                "tokens_bytes": token_path.stat().st_size if token_path.exists() else None,
+                "active_users_sha256": hashlib.sha256(active_path.read_bytes()).hexdigest() if active_path.exists() else None,
+                "tokens_sha256": hashlib.sha256(token_path.read_bytes()).hexdigest() if token_path.exists() else None,
             })
         return sorted(history, key=lambda item: item["run_id"], reverse=True)
 
@@ -200,7 +190,8 @@ class LocalStorage:
 
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int:
         merged = {row["date"]: row for row in self.load_workspace_usage()}
-        merged.update({row["date"]: row for row in incoming})
+        for row in incoming:
+            merged[row["date"]] = {**merged.get(row["date"], {}), **row}
         rows = [merged[key] for key in sorted(merged)]
         target = self.normalized_dir / "workspace-usage.jsonl"
         temporary = target.with_suffix(".tmp")
@@ -314,23 +305,6 @@ class S3Storage:
         digest = hashlib.sha256(payload).hexdigest()
         return self._put(f"raw/{run_id}/{name}", payload, "application/json", {"sha256": digest})
 
-    def load_latest_workspace_json(self, name: str) -> bytes | None:
-        if name not in {"active-users.json", "tokens.json"}:
-            raise ValueError("unsupported workspace JSON name")
-        root = self._key("raw/")
-        paginator = self.client.get_paginator("list_objects_v2")
-        run_ids = {
-            item["Key"][len(root):].split("/", 1)[0]
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=root)
-            for item in page.get("Contents", [])
-            if item["Key"].startswith(root) and "/" in item["Key"][len(root):]
-        }
-        for run_id in sorted(run_ids, reverse=True):
-            payload = self._get(f"raw/{run_id}/{name}")
-            if payload is not None:
-                return payload
-        return None
-
     def list_import_history(self) -> list[dict[str, Any]]:
         root = self._key("raw/")
         paginator = self.client.get_paginator("list_objects_v2")
@@ -345,14 +319,15 @@ class S3Storage:
         for run_id, names in runs.items():
             active_name = _existing_name(names, "active-users.json", "active-users.csv")
             token_name = _existing_name(names, "tokens.json", "tokens.csv")
-            if not active_name or not token_name:
+            if not active_name and not token_name:
                 continue
             try:
-                active = self._get(f"raw/{run_id}/{active_name}")
-                tokens = self._get(f"raw/{run_id}/{token_name}")
-                if active is None or tokens is None:
+                active = self._get(f"raw/{run_id}/{active_name}") if active_name else None
+                tokens = self._get(f"raw/{run_id}/{token_name}") if token_name else None
+                if active is None and tokens is None:
                     continue
-                dates = _import_dates_from_bytes(active, active_name)
+                dates = [day for payload, name in ((active, active_name), (tokens, token_name))
+                         if payload is not None and name for day in _import_dates_from_bytes(payload, name)]
                 imported_at = datetime.strptime(run_id, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).isoformat()
             except (UnicodeDecodeError, ValueError):
                 continue
@@ -361,9 +336,10 @@ class S3Storage:
                 "start_date": min(dates) if dates else None,
                 "end_date": max(dates) if dates else None,
                 "days": len(set(dates)),
-                "active_users_bytes": len(active), "tokens_bytes": len(tokens),
-                "active_users_sha256": hashlib.sha256(active).hexdigest(),
-                "tokens_sha256": hashlib.sha256(tokens).hexdigest(),
+                "active_users_bytes": len(active) if active is not None else None,
+                "tokens_bytes": len(tokens) if tokens is not None else None,
+                "active_users_sha256": hashlib.sha256(active).hexdigest() if active is not None else None,
+                "tokens_sha256": hashlib.sha256(tokens).hexdigest() if tokens is not None else None,
             })
         return sorted(history, key=lambda item: item["run_id"], reverse=True)
 
@@ -441,7 +417,8 @@ class S3Storage:
 
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int:
         merged = {row["date"]: row for row in self.load_workspace_usage()}
-        merged.update({row["date"]: row for row in incoming})
+        for row in incoming:
+            merged[row["date"]] = {**merged.get(row["date"], {}), **row}
         rows = [merged[key] for key in sorted(merged)]
         self._save_jsonl("normalized/workspace-usage.jsonl", rows)
         return len(rows)

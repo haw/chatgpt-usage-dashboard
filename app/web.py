@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.analytics import build_individual_dashboard, build_workspace_dashboard
 from app.config import Settings
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
-from app.json_importer import JSONImportError, parse_and_join_json, parse_token_json, parse_workspace_json
+from app.json_importer import JSONImportError, parse_token_json, parse_workspace_json
 from app.storage import create_storage
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -74,93 +74,57 @@ async def import_json(
     active_users_file: UploadFile | None = File(default=None),
     tokens_file: UploadFile | None = File(default=None),
 ) -> dict:
+    payloads: dict[str, bytes] = {}
+    upload_format = "json"
+    if files is None:
+        legacy = [upload for upload in (active_users_file, tokens_file) if upload is not None]
+        if not legacy:
+            raise HTTPException(status_code=400, detail="JSONファイルを選択してください")
+        if any(Path(upload.filename or "").suffix.lower() == ".csv" for upload in legacy):
+            if len(legacy) != 2 or any(Path(upload.filename or "").suffix.lower() != ".csv" for upload in legacy):
+                raise HTTPException(status_code=400, detail="旧CSV形式は2種類を同時に指定してください")
+            active_bytes = await active_users_file.read(MAX_UPLOAD_BYTES + 1)
+            token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
+            if max(len(active_bytes), len(token_bytes)) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="1ファイル5 MiB以下にしてください")
+            try:
+                rows = parse_and_join(active_bytes, token_bytes)
+            except CSVImportError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            payloads = {"active-users": active_bytes, "tokens": token_bytes}
+            upload_format = "csv"
+        else:
+            files = legacy
     if files is not None:
         if len(files) not in {1, 2}:
             raise HTTPException(status_code=400, detail="JSONは1ファイルずつ、または2ファイルまとめて選択してください")
-        payloads: dict[str, bytes] = {}
+        daily: dict[str, dict] = {}
         try:
             for upload in files:
                 payload = await upload.read(MAX_UPLOAD_BYTES + 1)
                 if len(payload) > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="JSONは1ファイル5 MiB以下にしてください")
-                chart_key, _ = parse_workspace_json(payload)
+                chart_key, parsed = parse_workspace_json(payload)
                 if chart_key in payloads:
                     raise HTTPException(status_code=400, detail=f"{chart_key} のJSONが重複しています")
                 payloads[chart_key] = payload
+                metric = "active_users" if chart_key == "active-users" else "tokens"
+                for day, source in parsed.items():
+                    row = daily.setdefault(day, {"date": day, "end_date": source["end_date"]})
+                    row[metric] = dict(source["values"])
+                    if metric == "tokens":
+                        row[metric]["total"] = sum(source["values"].values())
         except JSONImportError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if len(payloads) == 1:
-            chart_key, uploaded_bytes = next(iter(payloads.items()))
-            storage = create_storage(Settings.from_env())
-            other_key = "tokens" if chart_key == "active-users" else "active-users"
-            other_name = "tokens.json" if other_key == "tokens" else "active-users.json"
-            other_bytes = storage.load_latest_workspace_json(other_name)
-            if other_bytes is None:
-                run_id = storage.create_run()
-                own_name = "active-users.json" if chart_key == "active-users" else "tokens.json"
-                storage.save_raw_json(run_id, own_name, uploaded_bytes)
-                pending_notice = f"{'アクティブユーザー' if chart_key == 'active-users' else 'トークン'}JSONを保存しました。同じ期間の{'トークン' if other_key == 'tokens' else 'アクティブユーザー'}JSONをアップロードすると分析できます。"
-                state = storage.load_import_state()
-                result = build_workspace_dashboard(storage.load_workspace_usage(), state)
-                result["import_notice"] = pending_notice
-                return result
-            active_bytes, token_bytes = (uploaded_bytes, other_bytes) if chart_key == "active-users" else (other_bytes, uploaded_bytes)
-            try:
-                rows = parse_and_join_json(active_bytes, token_bytes)
-            except JSONImportError:
-                run_id = storage.create_run()
-                own_name = "active-users.json" if chart_key == "active-users" else "tokens.json"
-                storage.save_raw_json(run_id, own_name, uploaded_bytes)
-                pending_notice = "JSONを保存しましたが、保存済みのもう一方と日付範囲が一致しません。同じ期間のファイルをアップロードすると分析できます。"
-                state = storage.load_import_state()
-                result = build_workspace_dashboard(storage.load_workspace_usage(), state)
-                result["import_notice"] = pending_notice
-                return result
-            upload_format = "json"
-        else:
-            if set(payloads) != {"active-users", "tokens"}:
-                raise HTTPException(status_code=400, detail="active-users と tokens のJSONを1つずつ選択してください")
-            active_bytes = payloads["active-users"]
-            token_bytes = payloads["tokens"]
-            try:
-                rows = parse_and_join_json(active_bytes, token_bytes)
-            except JSONImportError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            upload_format = "json"
-    else:
-        if active_users_file is None or tokens_file is None:
-            raise HTTPException(status_code=400, detail="JSONファイルを2つ選択してください")
-        active_suffix = Path(active_users_file.filename or "").suffix.lower()
-        token_suffix = Path(tokens_file.filename or "").suffix.lower()
-        if active_suffix not in {".json", ".csv"} or token_suffix not in {".json", ".csv"}:
-            raise HTTPException(status_code=400, detail="対応するJSONまたはCSVを指定してください")
-        if active_suffix != token_suffix:
-            raise HTTPException(status_code=400, detail="2つのファイルは同じ形式に揃えてください")
-        active_bytes = await active_users_file.read(MAX_UPLOAD_BYTES + 1)
-        token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
-        if len(active_bytes) > MAX_UPLOAD_BYTES or len(token_bytes) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="1ファイル5 MiB以下にしてください")
-        if active_suffix == ".csv":
-            try:
-                rows = parse_and_join(active_bytes, token_bytes)
-            except CSVImportError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            upload_format = "csv"
-        else:
-            try:
-                rows = parse_and_join_json(active_bytes, token_bytes)
-            except JSONImportError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            upload_format = "json"
+        rows = [daily[day] for day in sorted(daily)]
 
-    storage = storage if files is not None and len(files) == 1 else create_storage(Settings.from_env())
+    storage = create_storage(Settings.from_env())
     run_id = storage.create_run()
-    if upload_format == "csv":
-        storage.save_raw_csv(run_id, "active-users.csv", active_bytes)
-        storage.save_raw_csv(run_id, "tokens.csv", token_bytes)
-    else:
-        storage.save_raw_json(run_id, "active-users.json", active_bytes)
-        storage.save_raw_json(run_id, "tokens.json", token_bytes)
+    for chart_key, payload in payloads.items():
+        if upload_format == "csv":
+            storage.save_raw_csv(run_id, f"{chart_key}.csv", payload)
+        else:
+            storage.save_raw_json(run_id, f"{chart_key}.json", payload)
     total_rows = storage.merge_workspace_usage(rows)
     now = datetime.now(timezone.utc).isoformat()
     state = {
