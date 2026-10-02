@@ -186,3 +186,6 @@
 .ai-heading { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px }
 .ai-text { margin:6px 0; font-size:.9rem; line-height:1.6 }
 .ai-generated { padding:8px 10px; border-left:3px solid var(--green); background:white }
+.ai-prompt-form { display:grid; gap:12px; margin-top:14px }
+.ai-prompt-form label { display:grid; gap:6px; font-size:.8rem; color:var(--muted) }
+.ai-prompt-form textarea { width:100%; padding:9px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:.82rem; line-height:1.5; color:var(--ink); background:white; resize:vertical }

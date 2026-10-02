@@ -792,8 +792,42 @@ document.querySelectorAll('.ai-model').forEach(button => button.addEventListener
   aiEngine = null; aiLoading = null;  // next request loads the chosen model
   renderAiPreference();
 }));
-const AI_SYSTEM = '役割: 統計の知識がない担当者向けに、ChatGPT利用量ダッシュボードの1日分の判定結果を日本語で説明する。' +
+const AI_DEFAULT_SYSTEM = '役割: 統計の知識がない担当者向けに、ChatGPT利用量ダッシュボードの1日分の判定結果を日本語で説明する。\n' +
   '制約: 与えられたJSONの数値だけを根拠にする。推測や、不正・悪意の断定はしない。専門用語（標準偏差・中央値・判定ライン）は使わず、「普段の何倍」「偶然では起きにくい」のような言葉に言い換える。3文以内、敬体。';
+const AI_DEFAULT_USER = '判定結果: {facts}\n「この日は何が普段と違うか」「どのくらい珍しいか」「次に何を確認するとよいか」を、この順で3文以内で書いてください。';
+const AI_PROMPT_KEY = 'chatgpt-dashboard.ai-prompts.v1';
+let aiPrompts = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AI_PROMPT_KEY));
+    if (saved && typeof saved.system === 'string' && typeof saved.user === 'string') return saved;
+  } catch (_) {}
+  return {system:AI_DEFAULT_SYSTEM, user:AI_DEFAULT_USER};
+})();
+let AI_SYSTEM = aiPrompts.system;
+function fillAiPrompts() {
+  document.querySelector('#ai-system-prompt').value = aiPrompts.system;
+  document.querySelector('#ai-user-prompt').value = aiPrompts.user;
+}
+function setAiPromptMessage(text, kind) { const el = document.querySelector('#ai-prompt-message'); el.textContent = text; el.className = `message ${kind}`; }
+document.querySelector('#ai-prompt-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const system = document.querySelector('#ai-system-prompt').value.trim();
+  const user = document.querySelector('#ai-user-prompt').value;
+  if (!system || !user.includes('{facts}')) { setAiPromptMessage('システムプロンプトは必須、指示文には {facts} を含めてください。', 'error'); return; }
+  aiPrompts = {system, user};
+  AI_SYSTEM = system;
+  aiEngine = null; aiLoading = null;  // the built-in session carries the system prompt, so start a new one
+  try { localStorage.setItem(AI_PROMPT_KEY, JSON.stringify(aiPrompts)); setAiPromptMessage('このブラウザに保存しました。次の読み取りから使います。', 'success'); }
+  catch (_) { setAiPromptMessage('ブラウザへ保存できませんでした。', 'error'); }
+});
+document.querySelector('#ai-prompt-reset').addEventListener('click', () => {
+  aiPrompts = {system:AI_DEFAULT_SYSTEM, user:AI_DEFAULT_USER};
+  AI_SYSTEM = AI_DEFAULT_SYSTEM;
+  aiEngine = null; aiLoading = null;
+  fillAiPrompts();
+  try { localStorage.setItem(AI_PROMPT_KEY, JSON.stringify(aiPrompts)); } catch (_) {}
+  setAiPromptMessage('初期値に戻しました。', 'success');
+});
 
 // Chrome's built-in Gemini Nano (Prompt API, Chrome 138+ behind flags, shipping in 148). 'unavailable' when absent.
 async function builtinAvailability() {
@@ -913,7 +947,7 @@ document.querySelector('#ai-generate').addEventListener('click', async () => {
     const engine = await loadAi(status);
     status.textContent = '生成中…';
     const facts = readingFacts(entry);
-    const user = `判定結果: ${JSON.stringify(facts)}\n「この日は何が普段と違うか」「どのくらい珍しいか」「次に何を確認するとよいか」を、この順で3文以内で書いてください。`;
+    const user = aiPrompts.user.replace('{facts}', JSON.stringify(facts));
     output.textContent = (await engine.ask(user)).trim();
     output.hidden = false;
     status.textContent = `${AI_MODEL_NAMES[engine.kind]}の読み取り`;
@@ -942,6 +976,7 @@ async function markDay(date, kind, button) {
 renderSensitivity();
 renderDayOverrideList();
 renderAiPreference();
+fillAiPrompts();
 load();
 const initialRoute = routeFromPath(location.pathname);
 history.replaceState({tab:initialRoute.tab, date:initialRoute.date}, '', location.pathname);

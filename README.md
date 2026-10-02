@@ -80,7 +80,7 @@ docker compose up -d --build dashboard
 
 インサイトの「グラフで見る」パネルに「読み取り」枠があります。上段は数値から組み立てた定型の説明、下段は「AIで読み取る（試験）」で生成する説明で、どちらも統計の知識がなくても読めることを狙っています。AIはブラウザ内で動き、判定に使った数値（JSON）だけを渡すため、データは外部へ送られません。
 
-使うモデルは「取込と設定」で選べます（既定は Qwen。試験では Gemini Nano より説明の内容が良好でした）。
+使うモデルと、AIに渡すプロンプト（システムプロンプトと指示文。指示文の `{facts}` にその日の判定データが入ります）は「取込と設定」で変更でき、ブラウザに保存されます（既定は Qwen。試験では Gemini Nano より説明の内容が良好でした）。
 
 - Chrome 内蔵の Gemini Nano（Prompt API）。Chrome 148 以降は標準で、それ以前は `chrome://flags/#optimization-guide-on-device-model`（BypassPerfRequirement）と `chrome://flags/#prompt-api-for-gemini-nano` を有効にし、初回にモデルを取得します（空き容量 22GB 以上、GPU 4GB 超または RAM 16GB＋4コア）。
 - WebLLM（Qwen2.5-1.5B-Instruct、WebGPU、約1GB、初回のみ取得しブラウザにキャッシュ）。
