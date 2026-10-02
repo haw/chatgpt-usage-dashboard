@@ -593,14 +593,23 @@ function renderTriageEntry(entry) {
   const kind = f.kind === 'holiday' ? `休日${f.kind_source === 'inferred' ? '（推定）' : f.kind_source === 'override' ? '（手動）' : ''}` : '平日';
   const facts = [kind, f.max_dau != null ? `DAU ${fmt.format(f.max_dau)}` : null, f.total_tokens != null ? `${compact(f.total_tokens)} tokens` : null].filter(Boolean);
   const strong = entry.observations.filter(o => o.severity !== 'info');
-  // Onset / continuation only makes sense when something actually crossed a line.
-  const change = !strong.length ? '' : entry.continuing ? `継続${entry.streak}日目` : entry.novel ? '初めてのパターン' : (entry.streak > 1 ? `${entry.streak}日目` : 'この日に発生');
+  // Onset / continuation only makes sense when something actually crossed a line. Spelled out, with a hover explanation.
+  let change = '';
+  if (strong.length) {
+    if (entry.continuing) change = `<span title="判定ラインを超えた観点がすべて前日から続いています（${entry.streak}日連続）。新しく始まった変化ではありません">前日から続いている（${entry.streak}日連続）</span>`;
+    else if (entry.novel) change = `<span title="同じ観点・同じ製品の判定超えが、直前14日にはなかった組み合わせです">直前14日になかった組み合わせ</span>`;
+    else if (entry.streak > 1) change = `<span title="一部の観点は前日から続いていますが、この日に新しく超えた観点もあります（最長${entry.streak}日連続）">一部は前日から続いている（最長${entry.streak}日連続）</span>`;
+    else change = `<span title="前日には判定ラインを超えた観点がなく、この日に超えました">この日だけ（前日は該当なし）</span>`;
+  }
+  const countText = strong.length
+    ? `<span title="独立した観点（検知器）のうち、判定ラインを超えたものの数。多いほど確認する価値が高い">判定ラインを超えた観点 ${entry.detectors}</span>`
+    : `<span title="判定ラインは超えていないが、普段より大きく上振れした兆候だけの日">判定ライン未満の兆候のみ</span>`;
   const info = entry.observations.filter(o => o.severity === 'info');
   const line = o => `<li class="sev-${esc(o.severity)}" title="${esc(detectorLabels[o.detector] || o.detector)}">${esc(signalSentence(o, f.kind))}${o.threshold != null && o.detector !== 'dau_increase' ? `<small class="muted">判定ライン ${compact(o.threshold)}</small>` : ''}${o.streak > 1 ? `<small class="muted">${o.streak}日連続</small>` : ''}</li>`;
   const checked = !!entry.disposition;
   const checkedText = checked ? `<span class="checked-mark">確認済み <small class="muted">${new Date(entry.disposition.recorded_at).toLocaleDateString('ja-JP')}</small></span>` : '';
   return `<article class="triage-entry tier-${esc(entry.tier)}" data-date="${esc(entry.date)}">
-    <header><span class="tier-badge ${esc(entry.tier)}">${TIER_LABELS[entry.tier]}</span><strong class="triage-date">${dateLabel(entry.date)}</strong><span class="triage-facts">${facts.map(esc).join(' · ')}</span><span class="triage-change">${esc(change)}</span><span class="triage-count">${strong.length ? `${entry.detectors}つの観点` : '参考のみ'}</span></header>
+    <header><span class="tier-badge ${esc(entry.tier)}">${TIER_LABELS[entry.tier]}</span><strong class="triage-date">${dateLabel(entry.date)}</strong><span class="triage-facts">${facts.map(esc).join(' · ')}</span><span class="triage-change">${change}</span><span class="triage-count">${countText}</span></header>
     <ul class="triage-observations">${strong.map(line).join('')}</ul>
     ${info.length ? `<details class="triage-info"><summary>参考 ${info.length}件</summary><ul class="triage-observations">${info.map(line).join('')}</ul></details>` : ''}
     <div class="triage-actions">${checkedText}<button type="button" class="check-button" data-date="${esc(entry.date)}" data-kind="${checked ? 'cleared' : 'checked'}">${checked ? '未確認に戻す' : '確認済みにする'}</button><button type="button" class="inspect-button" data-date="${esc(entry.date)}">グラフで見る</button></div>
