@@ -482,12 +482,13 @@ function dayKindCell(row){const kind=row.day_kind||'workday';const source=row.da
 // Dates with at least one non-info signal: the unit the analyst reasons about.
 function signalDates(alerts){return new Set(alerts.filter(a=>a.severity!=='info').map(a=>a.date))}
 function dateLabel(date){const d=new Date(`${date}T00:00:00Z`);return `${d.getUTCMonth()+1}/${d.getUTCDate()}（${['日','月','火','水','木','金','土'][d.getUTCDay()]}）`}
-function ratioText(value,baseline){if(baseline==null)return '';if(!baseline)return '（普段は利用なし）';const r=value/baseline;return `（普段 ${compact(baseline)} の ${r>=10?Math.round(r):r.toFixed(1)}倍）`}
+function kindOf(date){return (currentDaily.find(r=>r.date===date)||{}).day_kind||'workday'}
+function ratioText(value,baseline,kind){if(baseline==null)return '';if(!baseline)return kind==='holiday'?'（休日なのに利用）':'（普段は利用なし）';const r=value/baseline;return `（普段 ${compact(baseline)} の ${r>=10?Math.round(r):r.toFixed(1)}倍）`}
 function productName(product){return product?product.toUpperCase():'全製品'}
 // One short sentence per signal: what, how much, compared with what.
-function signalSentence(a){switch(a.type){
-  case 'token_spike':case 'token_notable':return `${productName(a.product)}のトークン ${compact(a.value)}${ratioText(a.value,a.baseline)}`;
-  case 'tokens_per_user_spike':case 'tokens_per_user_notable':return `1人あたり${productName(a.product)} ${compact(a.value)}${ratioText(a.value,a.baseline)}`;
+function signalSentence(a,kind=kindOf(a.date)){switch(a.type){
+  case 'token_spike':case 'token_notable':return `${productName(a.product)}のトークン ${compact(a.value)}${ratioText(a.value,a.baseline,kind)}`;
+  case 'tokens_per_user_spike':case 'tokens_per_user_notable':return `1人あたり${productName(a.product)} ${compact(a.value)}${ratioText(a.value,a.baseline,kind)}`;
   case 'dau_spike':case 'dau_spike_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人（普段 ${fmt.format(a.baseline)}人）`;
   case 'dau_drop':case 'dau_drop_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人に減少（普段 ${fmt.format(a.baseline)}人）`;
   case 'dau_new_max':return `${productName(a.product)}の利用者 ${fmt.format(a.value)}人は直前28日で最多（これまでの最多 ${fmt.format(a.baseline)}人、+${fmt.format(a.value-a.baseline)}人）`;
@@ -569,7 +570,7 @@ function renderTriageEntry(entry) {
   const change = entry.continuing ? `継続${entry.streak}日目` : entry.novel ? '初めてのパターン' : (entry.streak > 1 ? `${entry.streak}日目` : 'この日から');
   const strong = entry.observations.filter(o => o.severity !== 'info');
   const info = entry.observations.filter(o => o.severity === 'info');
-  const line = o => `<li class="sev-${esc(o.severity)}" title="${esc(detectorLabels[o.detector] || o.detector)}">${esc(signalSentence(o))}${o.threshold != null && o.detector !== 'dau_increase' ? `<small class="muted">判定ライン ${compact(o.threshold)}</small>` : ''}${o.streak > 1 ? `<small class="muted">${o.streak}日連続</small>` : ''}</li>`;
+  const line = o => `<li class="sev-${esc(o.severity)}" title="${esc(detectorLabels[o.detector] || o.detector)}">${esc(signalSentence(o, f.kind))}${o.threshold != null && o.detector !== 'dau_increase' ? `<small class="muted">判定ライン ${compact(o.threshold)}</small>` : ''}${o.streak > 1 ? `<small class="muted">${o.streak}日連続</small>` : ''}</li>`;
   const checked = !!entry.disposition;
   const checkedText = checked ? `<span class="checked-mark">確認済み <small class="muted">${new Date(entry.disposition.recorded_at).toLocaleDateString('ja-JP')}</small></span>` : '';
   return `<article class="triage-entry tier-${esc(entry.tier)}" data-date="${esc(entry.date)}">
