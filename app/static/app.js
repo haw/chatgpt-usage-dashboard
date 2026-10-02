@@ -644,39 +644,44 @@ async function openContext(date) {
   }
 }
 
-// One-dimensional distribution: where does this day's value sit among the baseline days?
-// Baseline days are dots along the value axis (stacked when they overlap), with the median,
-// the usual range (median ± 1 SD-equivalent) and the threshold; the day is the red marker.
+// Horizontal box plot of the baseline days with the threshold and this day's value:
+// a familiar shape that reads at a glance as "inside the box / past the whisker / past the line".
+function quantile(sorted, q) {
+  if (!sorted.length) return 0;
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
 function renderContextChart(signal, rows, date, kind) {
   const sameKind = signal.detector === 'holiday_usage' ? 'workday' : kind;  // holiday_usage compares a holiday with workdays
   const dayRow = rows.find(r => r.date === date);
   const dayValue = dayRow ? metricOf(signal, dayRow) : signal.value;
   const windowStart = new Date(`${date}T00:00:00Z`); windowStart.setUTCDate(windowStart.getUTCDate() - 28);
   const since = windowStart.toISOString().slice(0, 10);
-  const baseline = rows.filter(r => r.date < date && r.date >= since && r.day_kind === sameKind).map(r => ({date:r.date, value:metricOf(signal, r)})).filter(p => p.value != null);
+  // Days this detector already flagged are left out of its baseline (same as the server), so the box matches the sentence.
+  const flagged = new Set([...triageEntries.values()].filter(e => e.date < date).flatMap(e => e.observations
+    .filter(o => o.severity !== 'info' && o.detector === signal.detector && o.product === signal.product).map(() => e.date)));
+  const baseline = rows.filter(r => r.date < date && r.date >= since && r.day_kind === sameKind && !flagged.has(r.date)).map(r => ({date:r.date, value:metricOf(signal, r)})).filter(p => p.value != null);
   if (dayValue == null) return '';
-  const width = 640, height = 150, left = 20, right = 20, axisY = 112;
   const sorted = baseline.map(p => p.value).sort((a, b) => a - b);
-  const median = signal.baseline != null ? signal.baseline : (sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0);
-  const mad = sorted.length ? [...sorted.map(v => Math.abs(v - median))].sort((a, b) => a - b)[Math.floor(sorted.length / 2)] : 0;
-  const sd = mad / 0.6745;
+  const q1 = quantile(sorted, .25), median = quantile(sorted, .5), q3 = quantile(sorted, .75), iqr = q3 - q1;
+  const inRange = sorted.filter(v => v >= q1 - 1.5 * iqr && v <= q3 + 1.5 * iqr);
+  const whiskerLow = inRange.length ? inRange[0] : q1, whiskerHigh = inRange.length ? inRange[inRange.length - 1] : q3;
+  const outliers = baseline.filter(p => p.value < whiskerLow || p.value > whiskerHigh);
+  const width = 640, height = 130, left = 20, right = 20, mid = 64, boxHalf = 18;
   const maxValue = Math.max(1, dayValue, signal.threshold || 0, ...sorted) * 1.08;
   const x = v => left + v / maxValue * (width - left - right);
-  // stack overlapping dots: bins of ~12px
-  const binWidth = 12, stacks = new Map();
-  const dots = baseline.map(p => {
-    const bin = Math.round(x(p.value) / binWidth);
-    const level = stacks.get(bin) || 0; stacks.set(bin, level + 1);
-    return `<circle cx="${x(p.value)}" cy="${axisY - 8 - level * 9}" r="4" class="ctx-base"><title>${p.date} ${fmt.format(Math.round(p.value))}</title></circle>`;
-  }).join('');
-  const band = sd > 0 ? `<rect x="${x(Math.max(0, median - sd))}" y="${18}" width="${x(median + sd) - x(Math.max(0, median - sd))}" height="${axisY - 18}" class="ctx-band"/>` : '';
-  const vline = (v, cls, label, dy) => v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="18" y2="${axisY}" class="${cls}"/><text x="${x(v)}" y="${dy}" text-anchor="middle" class="axis-label">${label} ${compact(v)}</text>`;
+  const box = sorted.length ? `<line x1="${x(whiskerLow)}" x2="${x(q1)}" y1="${mid}" y2="${mid}" class="box-whisker"/><line x1="${x(q3)}" x2="${x(whiskerHigh)}" y1="${mid}" y2="${mid}" class="box-whisker"/><line x1="${x(whiskerLow)}" x2="${x(whiskerLow)}" y1="${mid - 8}" y2="${mid + 8}" class="box-whisker"/><line x1="${x(whiskerHigh)}" x2="${x(whiskerHigh)}" y1="${mid - 8}" y2="${mid + 8}" class="box-whisker"/><rect x="${x(q1)}" y="${mid - boxHalf}" width="${Math.max(2, x(q3) - x(q1))}" height="${boxHalf * 2}" class="box-body"><title>基準 ${sorted.length}日: 最小 ${compact(sorted[0])} / 25% ${compact(q1)} / 中央値 ${compact(median)} / 75% ${compact(q3)} / 最大 ${compact(sorted[sorted.length - 1])}</title></rect><line x1="${x(median)}" x2="${x(median)}" y1="${mid - boxHalf}" y2="${mid + boxHalf}" class="box-median"/>` : '';
+  const outlierDots = outliers.map(p => `<circle cx="${x(p.value)}" cy="${mid}" r="3" class="ctx-base"><title>${p.date} ${fmt.format(Math.round(p.value))}</title></circle>`).join('');
   const baseLabel = signal.detector === 'dau_increase' ? 'これまでの最多' : signal.detector === 'holiday_usage' ? '平日の中央値' : '中央値';
-  const ticks = [0, .25, .5, .75, 1].map(part => `<text x="${x(maxValue * part)}" y="${axisY + 16}" text-anchor="middle" class="axis-label">${compact(maxValue * part)}</text>`).join('');
-  const day = `<path d="M ${x(dayValue)} ${axisY - 16} l 7 8 l -7 8 l -7 -8 Z" class="ctx-day"><title>${date} ${fmt.format(Math.round(dayValue))}</title></path><text x="${x(dayValue)}" y="${axisY + 32}" text-anchor="middle" class="axis-label current">この日 ${compact(dayValue)}</text>`;
+  const refValue = signal.detector === 'dau_increase' ? signal.baseline : median;
+  const threshold = signal.threshold != null ? `<line x1="${x(signal.threshold)}" x2="${x(signal.threshold)}" y1="14" y2="${mid + boxHalf + 10}" class="analysis-threshold-line"/><text x="${x(signal.threshold)}" y="12" text-anchor="middle" class="axis-label">判定ライン ${compact(signal.threshold)}</text>` : '';
+  const ref = refValue != null ? `<text x="${x(refValue)}" y="${mid + boxHalf + 14}" text-anchor="middle" class="axis-label">${baseLabel} ${compact(refValue)}</text>` : '';
+  const day = `<path d="M ${x(dayValue)} ${mid - 9} l 9 9 l -9 9 l -9 -9 Z" class="ctx-day"><title>${date} ${fmt.format(Math.round(dayValue))}</title></path><text x="${x(dayValue)}" y="${mid + boxHalf + 30}" text-anchor="middle" class="axis-label current">この日 ${compact(dayValue)}</text>`;
+  const ticks = [0, .5, 1].map(part => `<text x="${x(maxValue * part)}" y="${height - 4}" text-anchor="${part === 0 ? 'start' : part === 1 ? 'end' : 'middle'}" class="axis-label">${compact(maxValue * part)}</text>`).join('');
   const title = `${detectorLabels[signal.detector] || signal.detector}${signal.product ? ` · ${signal.product.toUpperCase()}` : ''}`;
   const kindLabel = sameKind === 'holiday' ? '休日' : '平日';
-  return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(signal, kind))}</p><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${band}<line x1="${left}" x2="${width - right}" y1="${axisY}" y2="${axisY}" class="grid-line"/>${vline(median, 'analysis-baseline-line', baseLabel, 12)}${vline(signal.threshold, 'analysis-threshold-line', '判定ライン', 12)}${dots}${day}${ticks}</svg><small class="muted">● 基準にした${kindLabel} ${baseline.length}日の値 · 帯: 普段の範囲（${baseLabel}±標準偏差1個分） · ◆ この日</small></section>`;
+  return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(signal, kind))}</p><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><line x1="${left}" x2="${width - right}" y1="${height - 16}" y2="${height - 16}" class="grid-line"/>${box}${outlierDots}${threshold}${ref}${day}${ticks}</svg><small class="muted">箱ひげ: 基準にした${kindLabel} ${sorted.length}日の分布（箱＝中央50%、線＝中央値、ひげ＝通常の範囲）· 点線: 判定ライン · ◆ この日</small></section>`;
 }
 
 async function markDay(date, kind, button) {
