@@ -87,7 +87,7 @@
 .sensitivity-value { font-size:.8rem; color:#ad5c19; min-width:9em; text-align:left; white-space:nowrap }
 .signal-summary { margin:0 0 10px; font-size:.95rem }
 .signal-summary strong { color:#ad5c19 }
-.signal-delta { margin:0 0 12px; padding:8px 12px; border-radius:8px; background:#fff4e6; border:1px solid #ecd6c4; font-size:.8rem }
+.signal-delta { margin:12px 0 0; padding:10px 14px; border-radius:8px; background:#fbfaf7; border:1px solid var(--line); font-size:.8rem }
 .signal-delta strong { color:#ad5c19 }
 .signal-groups { display:grid; gap:8px }
 .signal-group { border:1px solid #ecd6c4; background:#fff9f2; border-radius:10px; padding:0 12px }
@@ -156,3 +156,10 @@
 .signal-delta li.removed { color:var(--muted) }
 .signal-delta li b { margin-right:6px }
 .sensitivity-control .help-content { white-space:normal; text-align:left }
+.signal-delta li { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; padding:3px 6px; border-radius:6px }
+.signal-delta li.added { background:#fff1ec; font-weight:700; border-left:3px solid var(--red) }
+.signal-delta li.removed { color:var(--muted); text-decoration:line-through; text-decoration-color:#c8cdc9 }
+.signal-delta li.removed small { text-decoration:none }
+.tag-new { display:inline-block; padding:1px 7px; border-radius:999px; background:var(--red); color:white; font-size:.68rem; font-weight:800 }
+@keyframes added { 0% { background:#ffd9d0 } 100% { background:#fff1ec } }
+.signal-delta li.added { animation:added 2s ease-out }
