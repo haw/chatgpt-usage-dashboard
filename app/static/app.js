@@ -26,14 +26,25 @@ async function load(start, end) {
   }
 }
 
-document.querySelector('#upload-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const button = event.currentTarget.querySelector('button');
+const workspaceFiles = document.querySelector('#workspace-json-files');
+const workspaceImportButton = document.querySelector('#workspace-import-button');
+workspaceImportButton.addEventListener('click', () => workspaceFiles.click());
+workspaceFiles.addEventListener('change', async () => {
+  const files = Array.from(workspaceFiles.files || []);
+  if (!files.length) return;
+  if (files.length !== 2) {
+    setMessage('アクティブユーザーJSONとトークンJSONの2ファイルを選択してください。', 'error');
+    workspaceFiles.value = '';
+    return;
+  }
+  const button = workspaceImportButton;
   button.disabled = true;
   button.textContent = '取込中…';
   setMessage('JSONの形式を検証しています。', '');
   try {
-    const response = await fetch('/api/import', {method:'POST', body:new FormData(event.currentTarget)});
+    const body = new FormData();
+    files.forEach(file => body.append('files', file));
+    const response = await fetch('/api/import', {method:'POST', body});
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     render(data);
@@ -43,6 +54,7 @@ document.querySelector('#upload-form').addEventListener('submit', async event =>
   } finally {
     button.disabled = false;
     button.textContent = 'アップロードして分析';
+    workspaceFiles.value = '';
   }
 });
 

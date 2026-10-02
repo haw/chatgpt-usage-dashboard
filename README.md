@@ -10,12 +10,12 @@ ChatGPT管理画面から出力した集計JSONをアップロードし、ワー
 docker compose up -d --build dashboard
 ```
 
-[http://localhost:8000](http://localhost:8000) を開き、同じ期間について管理画面から出力した次の2ファイルを、全体分析の1つのファイル選択欄でまとめて選びます。選択順は問いません。
+[http://localhost:8000](http://localhost:8000) を開き、「アップロードして分析」ボタンから同じ期間について管理画面から出力した次の2ファイルをまとめて選びます。選択順は問いません。選択後は自動でアップロード・分析が実行されます。
 
 1. 1日のアクティブユーザー数JSON
 2. トークンJSON
 
-「アップロードして分析」を押すと、既存データへ日付単位で上書き保存されます。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
+既存データへ日付単位で上書き保存されます。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
 
 コンテナは非rootユーザーで動作します。ローカルの `data/` をホストユーザーの所有に合わせるため、Composeは既定でUID/GID `1000:1000` を使います。異なる場合は起動前に `LOCAL_UID` と `LOCAL_GID` を設定してください（例: `LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up -d --build dashboard`）。
 
