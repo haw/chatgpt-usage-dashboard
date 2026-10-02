@@ -9,6 +9,19 @@ class JSONImportError(ValueError):
     pass
 
 
+def identify_chart_key(payload: bytes) -> str:
+    try:
+        document = json.loads(payload.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise JSONImportError("正しいUTF-8 JSONではありません") from exc
+    if not isinstance(document, dict):
+        raise JSONImportError("JSONの最上位はオブジェクトである必要があります")
+    chart_key = document.get("chart_key")
+    if chart_key not in {"active-users", "tokens"}:
+        raise JSONImportError("chart_key が active-users または tokens ではありません")
+    return chart_key
+
+
 def parse_and_join_json(active_bytes: bytes, token_bytes: bytes) -> list[dict[str, Any]]:
     active = _parse(active_bytes, "active-users", "アクティブユーザーJSON")
     tokens = _parse(token_bytes, "tokens", "トークンJSON")

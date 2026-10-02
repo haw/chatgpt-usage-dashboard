@@ -24,7 +24,7 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 ## 3. 画面要件
 
 - 全体分析と個人別分析をタブで分離し、切り替えて利用できる。
-- JSONアップロード: アクティブユーザーJSON、トークンJSON、取込結果
+- JSONアップロード: 1つの複数ファイル選択欄で2ファイルを受け取り、`chart_key` から種類を自動判定して取込結果を表示する。
 - 取込状態: 最終成功日時、対象期間、日数、エラー状態
 - KPI: 最新日の製品別最大DAU、期間総トークン、日平均トークン、検出アラート数
 - Chat/Codex/Work別の日次アクティブユーザー推移
@@ -91,7 +91,7 @@ data/
 
 ## 6. API
 
-- `POST /api/import`: multipartでJSON形式の `active_users_file` と `tokens_file` を受け付ける。
+- `POST /api/import`: multipartの `files` 複数項目を受け取り、各JSONの `chart_key` から種類を判定する。旧形式の `active_users_file`・`tokens_file` 項目も互換用に受け付ける。
 - `GET /api/dashboard`: 保存済み集計と異常兆候を返す。
 - `GET /health`: ヘルスチェックを返す。
 - `POST /api/individual/import`: ユーザー識別子と個人別トークンJSONを取り込む。

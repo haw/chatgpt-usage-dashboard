@@ -10,7 +10,7 @@ ChatGPT管理画面から出力した集計JSONをアップロードし、ワー
 docker compose up -d --build dashboard
 ```
 
-[http://localhost:8000](http://localhost:8000) を開き、同じ期間について管理画面から出力した次の2ファイルを選択します。
+[http://localhost:8000](http://localhost:8000) を開き、同じ期間について管理画面から出力した次の2ファイルを、全体分析の1つのファイル選択欄でまとめて選びます。選択順は問いません。
 
 1. 1日のアクティブユーザー数JSON
 2. トークンJSON

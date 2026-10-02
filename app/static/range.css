@@ -52,3 +52,4 @@
 .limit-status.normal { background:#e3f0e9; color:var(--green) }.limit-status.near { background:#fff0d8; color:#a65b19 }.limit-status.reached { background:#f8dfdb; color:var(--red) }
 .limit-ratio { display:block; font-weight:800 }.limit-detail { display:block; margin-top:3px; color:var(--muted); font-size:.66rem; white-space:nowrap }
 .history-section { margin-top:22px }.history-section h3 { margin:0 0 8px; font-size:.92rem }.history-section + .history-section { padding-top:18px; border-top:1px solid var(--line) }
+#upload-form { grid-template-columns:minmax(0,1fr) auto } @media(max-width:900px) { #upload-form { grid-template-columns:1fr } }

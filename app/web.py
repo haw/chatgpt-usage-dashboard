@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.analytics import build_individual_dashboard, build_workspace_dashboard
 from app.config import Settings
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
-from app.json_importer import JSONImportError, parse_and_join_json, parse_token_json
+from app.json_importer import JSONImportError, identify_chart_key, parse_and_join_json, parse_token_json
 from app.storage import create_storage
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -70,35 +70,63 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 @app.post("/api/import")
 async def import_json(
-    active_users_file: UploadFile = File(...),
-    tokens_file: UploadFile = File(...),
+    files: list[UploadFile] | None = File(default=None),
+    active_users_file: UploadFile | None = File(default=None),
+    tokens_file: UploadFile | None = File(default=None),
 ) -> dict:
-    active_suffix = Path(active_users_file.filename or "").suffix.lower()
-    token_suffix = Path(tokens_file.filename or "").suffix.lower()
-    if active_suffix not in {".json", ".csv"}:
-        raise HTTPException(status_code=400, detail="アクティブユーザーJSON（.json）を選択してください")
-    if token_suffix not in {".json", ".csv"}:
-        raise HTTPException(status_code=400, detail="トークンJSON（.json）を選択してください")
-    if active_suffix != token_suffix:
-        raise HTTPException(status_code=400, detail="2つのファイルは同じ形式に揃えてください")
-    active_bytes = await active_users_file.read(MAX_UPLOAD_BYTES + 1)
-    token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
-    if len(active_bytes) > MAX_UPLOAD_BYTES or len(token_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="1ファイル5 MiB以下にしてください")
-    if active_suffix == ".csv":
+    if files is not None:
+        if len(files) != 2:
+            raise HTTPException(status_code=400, detail="アクティブユーザーJSONとトークンJSONの2ファイルを選択してください")
+        payloads: dict[str, bytes] = {}
         try:
-            rows = parse_and_join(active_bytes, token_bytes)
-        except CSVImportError as exc:
+            for upload in files:
+                payload = await upload.read(MAX_UPLOAD_BYTES + 1)
+                if len(payload) > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="JSONは1ファイル5 MiB以下にしてください")
+                chart_key = identify_chart_key(payload)
+                if chart_key in payloads:
+                    raise HTTPException(status_code=400, detail=f"{chart_key} のJSONが重複しています")
+                payloads[chart_key] = payload
+        except JSONImportError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-    else:
+        if set(payloads) != {"active-users", "tokens"}:
+            raise HTTPException(status_code=400, detail="active-users と tokens のJSONを1つずつ選択してください")
+        active_bytes = payloads["active-users"]
+        token_bytes = payloads["tokens"]
         try:
             rows = parse_and_join_json(active_bytes, token_bytes)
         except JSONImportError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        upload_format = "json"
+    else:
+        if active_users_file is None or tokens_file is None:
+            raise HTTPException(status_code=400, detail="JSONファイルを2つ選択してください")
+        active_suffix = Path(active_users_file.filename or "").suffix.lower()
+        token_suffix = Path(tokens_file.filename or "").suffix.lower()
+        if active_suffix not in {".json", ".csv"} or token_suffix not in {".json", ".csv"}:
+            raise HTTPException(status_code=400, detail="対応するJSONまたはCSVを指定してください")
+        if active_suffix != token_suffix:
+            raise HTTPException(status_code=400, detail="2つのファイルは同じ形式に揃えてください")
+        active_bytes = await active_users_file.read(MAX_UPLOAD_BYTES + 1)
+        token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
+        if len(active_bytes) > MAX_UPLOAD_BYTES or len(token_bytes) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="1ファイル5 MiB以下にしてください")
+        if active_suffix == ".csv":
+            try:
+                rows = parse_and_join(active_bytes, token_bytes)
+            except CSVImportError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            upload_format = "csv"
+        else:
+            try:
+                rows = parse_and_join_json(active_bytes, token_bytes)
+            except JSONImportError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            upload_format = "json"
 
     storage = create_storage(Settings.from_env())
     run_id = storage.create_run()
-    if active_suffix == ".csv":
+    if upload_format == "csv":
         storage.save_raw_csv(run_id, "active-users.csv", active_bytes)
         storage.save_raw_csv(run_id, "tokens.csv", token_bytes)
     else:
