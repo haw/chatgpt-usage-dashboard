@@ -139,7 +139,7 @@ def test_index_has_four_views():
     for view in ("triage", "workspace", "individual", "settings"):
         assert f'id="{view}-tab"' in response.text
     assert "インサイト" in response.text and "取込と設定" in response.text
-    assert 'id="context-dialog"' in response.text
+    assert 'id="context-dialog"' in response.text and 'id="ai-reading"' in response.text
     assert 'id="triage-today"' in response.text and 'id="workspace-json-files"' in response.text
     assert 'id="settings-dialog"' in response.text
     assert 'id="individual-five-hour-hits"' in response.text

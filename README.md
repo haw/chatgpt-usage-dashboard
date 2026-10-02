@@ -76,6 +76,16 @@ docker compose up -d --build dashboard
 
 設定の誤りはその検知器だけをスキップし、画面とAPI（`detector_errors`）に理由を表示します。
 
+## AIによる読み取り（試験導入）
+
+インサイトの「グラフで見る」パネルに「読み取り」枠があります。上段は数値から組み立てた定型の説明、下段は「AIで読み取る（試験）」で生成する説明で、どちらも統計の知識がなくても読めることを狙っています。AIはブラウザ内で動き、判定に使った数値（JSON）だけを渡すため、データは外部へ送られません。
+
+- 優先: Chrome 内蔵の Gemini Nano（Prompt API）。Chrome 148 以降は標準で、それ以前は `chrome://flags/#optimization-guide-on-device-model`（BypassPerfRequirement）と `chrome://flags/#prompt-api-for-gemini-nano` を有効にし、初回にモデルを取得します（空き容量 22GB 以上、GPU 4GB 超または RAM 16GB＋4コア）。
+- 代替: WebGPU が使える Chrome では WebLLM（Qwen2.5-1.5B-Instruct、約1GB、初回のみ取得しブラウザにキャッシュ）。
+- どちらも無い場合は定型文のみ。
+
+AIの文は判断の材料であり、数値で確認してください。
+
 ## JSON要件
 
 管理画面のAnalytics JSONを受け付けます。アクティブユーザーJSONは `chart_key` が `active-users`、トークンJSONは `tokens` である必要があります。どちらも `series` にChat・Codex・Workが各1系列あり、`rows` に日別データを含む形式です。取込例:

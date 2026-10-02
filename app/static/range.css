@@ -182,3 +182,7 @@
 .ctx-other { fill:#c8cdc9; opacity:.6 }
 .ctx-day { fill:var(--red); stroke:#fff; stroke-width:1.5 }
 .axis-label.current { fill:var(--red); font-weight:700 }
+.ai-reading { margin-top:12px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:#fbfaf7 }
+.ai-heading { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px }
+.ai-text { margin:6px 0; font-size:.9rem; line-height:1.6 }
+.ai-generated { padding:8px 10px; border-left:3px solid var(--green); background:white }

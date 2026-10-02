@@ -695,6 +695,7 @@ async function openContext(date, {push = true} = {}) {
     contextData = {entry, rows:data.rows, date};
     renderContextMode();
     renderContextCharts();
+    renderReading(entry);
   } catch (error) {
     charts.innerHTML = `<p class="message error">読み込みに失敗しました: ${esc(error.message)}</p>`;
   }
@@ -768,6 +769,136 @@ function renderContextSeries(signal, rows, date, kind) {
   const kindLabel = sameKind === 'holiday' ? '休日' : '平日';
   return `<figure class="context-figure"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${grid}${guide}${line(signal.threshold, 'analysis-threshold-line', '判定ライン')}${line(signal.baseline, 'analysis-baseline-line', baseLabel)}${seriesLine}${dots}${labels}</svg><figcaption class="muted">推移 — 実線: ${kindLabel}の流れ（基準に使う系列）· 薄い点: ${kindLabel === '休日' ? '平日' : '休日'}（基準に含まない）· 赤: この日</figcaption></figure>`;
 }
+
+// ---- plain-language reading of a day: a deterministic template, plus an optional in-browser LLM ----
+const AI_MODEL = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
+const AI_LIBRARY = 'https://esm.run/@mlc-ai/web-llm';
+let aiEngine = null, aiLoading = null;  // {kind:'builtin'|'webllm', ...}
+const AI_SYSTEM = '役割: 統計の知識がない担当者向けに、ChatGPT利用量ダッシュボードの1日分の判定結果を日本語で説明する。' +
+  '制約: 与えられたJSONの数値だけを根拠にする。推測や、不正・悪意の断定はしない。専門用語（標準偏差・中央値・判定ライン）は使わず、「普段の何倍」「偶然では起きにくい」のような言葉に言い換える。3文以内、敬体。';
+
+// Chrome's built-in Gemini Nano (Prompt API, Chrome 138+ behind flags, shipping in 148). 'unavailable' when absent.
+async function builtinAvailability() {
+  try { return 'LanguageModel' in window ? await window.LanguageModel.availability() : 'unavailable'; }
+  catch (_) { return 'unavailable'; }
+}
+
+function readingFacts(entry) {
+  const f = entry.facts || {};
+  return {
+    date: dateLabel(entry.date),
+    kind: f.kind === 'holiday' ? (f.kind_source === 'inferred' ? '平日だが利用が少なく休日と推定' : '休日') : '平日',
+    dau: f.max_dau, total_tokens: f.total_tokens,
+    observations: entry.observations.filter(o => o.severity !== 'info').map(o => ({
+      what: plainMetric(o),
+      detector: o.detector,
+      sentence: signalSentence(o, f.kind),
+      value: o.value, usual: o.baseline, threshold: o.threshold,
+      ratio: o.baseline ? Math.round(o.value / o.baseline * 10) / 10 : null,
+      sd: o.score != null ? Math.round(Math.abs(o.score) * 10) / 10 : null,
+      streak: o.streak,
+    })),
+    checked: !!entry.disposition,
+  };
+}
+
+// What each detector measures, in plain words.
+function plainMetric(o) {
+  const p = o.product ? o.product.toUpperCase() : '全製品';
+  switch (o.detector) {
+    case 'tokens_per_user': return `${p}の1人あたり利用量`;
+    case 'dau_change': case 'dau_increase': return `${p}の利用者数`;
+    case 'holiday_usage': return '休日の利用量';
+    default: return `${p}の利用量`;
+  }
+}
+
+// Built only from the numbers, in words someone without statistics can follow.
+function templateReading(facts) {
+  const obs = facts.observations;
+  if (!obs.length) return `${facts.date}は判定ラインを超えた観点がなく、確認の対象ではありません。`;
+  const parts = [`${facts.date}（${facts.kind}${facts.dau != null ? `、利用者 最大${fmt.format(facts.dau)}人` : ''}）は、`];
+  parts.push(obs.map(o => {
+    let how;
+    if (o.detector === 'holiday_usage') how = `平日の${Math.round(o.ratio * 100)}%に相当`;
+    else if (o.detector === 'dau_increase') how = `直近28日で最も多い${fmt.format(o.value)}人`;
+    else if (o.detector === 'dau_change') how = o.value < o.usual ? `普段の${fmt.format(o.usual)}人から${fmt.format(o.value)}人に減少` : `普段の${fmt.format(o.usual)}人から${fmt.format(o.value)}人に増加`;
+    else if (o.ratio && o.usual) how = `普段の${o.ratio}倍`;
+    else if (o.usual === 0) how = facts.kind === '平日' ? '普段は利用がないのに利用あり' : '休日なのに利用あり';
+    else how = '普段より多い';
+    const strength = o.sd != null ? (o.sd >= 7 ? '偶然ではまず起きない大きさ' : o.sd >= 3.5 ? '偶然の揺れとしては珍しい大きさ' : '揺れの範囲に近い大きさ') : '';
+    return `${o.what}が${how}${strength ? `（${strength}）` : ''}`;
+  }).join('、'));
+  parts.push('でした。');
+  const multi = obs.length >= 2 ? `${obs.length}つの観点が同じ日に重なっているため、1つだけの場合より確認する価値があります。` : '観点は1つなので、単発の揺れの可能性も残ります。';
+  const streak = Math.max(...obs.map(o => o.streak || 0));
+  const cont = streak > 1 ? `同じ傾向が${streak}日続いています。` : '';
+  const holiday = facts.kind !== '平日' ? '休日の利用は、休日出勤やイベントなど業務上の理由がないか確認してください。' : '';
+  return parts.join('') + multi + cont + holiday;
+}
+
+function renderReading(entry) {
+  const facts = readingFacts(entry);
+  document.querySelector('#ai-template').textContent = templateReading(facts);
+  const output = document.querySelector('#ai-output');
+  output.hidden = true; output.textContent = '';
+  const button = document.querySelector('#ai-generate');
+  button.dataset.date = entry.date;
+  const status = document.querySelector('#ai-status');
+  builtinAvailability().then(builtin => {
+    const supported = builtin !== 'unavailable' || !!navigator.gpu;
+    button.disabled = !supported || !facts.observations.length;
+    if (aiEngine) status.textContent = aiEngine.kind === 'builtin' ? 'Chrome内蔵AI（Gemini Nano）' : 'ブラウザ内AI（Qwen2.5 1.5B）';
+    else if (builtin !== 'unavailable') status.textContent = builtin === 'available' ? 'Chrome内蔵AI（Gemini Nano）を使います' : 'Chrome内蔵AIのモデルを初回に取得します';
+    else if (navigator.gpu) status.textContent = '内蔵AIがないため、初回は約1GBのモデルを取得します';
+    else status.textContent = 'このブラウザではAIを使えません（Chromeで利用できます）';
+  });
+}
+
+async function loadAi(status) {
+  if (aiEngine) return aiEngine;
+  if (!aiLoading) {
+    aiLoading = (async () => {
+      if (await builtinAvailability() !== 'unavailable') {
+        const session = await window.LanguageModel.create({
+          initialPrompts: [{role:'system', content:AI_SYSTEM}],
+          expectedInputs: [{type:'text', languages:['ja']}], expectedOutputs: [{type:'text', languages:['ja']}],
+          monitor(m) { m.addEventListener('downloadprogress', e => { status.textContent = `内蔵AIのモデルを取得中 ${Math.round(e.loaded * 100)}%`; }); },
+        });
+        aiEngine = {kind:'builtin', ask: async text => (await session.clone()).prompt(text)};
+        return aiEngine;
+      }
+      if (!navigator.gpu) throw new Error('WebGPU がありません');
+      const webllm = await import(AI_LIBRARY);
+      const engine = await webllm.CreateMLCEngine(AI_MODEL, {initProgressCallback: p => { status.textContent = p.text; }});
+      aiEngine = {kind:'webllm', ask: async text => (await engine.chat.completions.create({
+        messages:[{role:'system', content:AI_SYSTEM}, {role:'user', content:text}], temperature:0.2, max_tokens:220,
+      })).choices[0].message.content};
+      return aiEngine;
+    })().catch(error => { aiLoading = null; throw error; });
+  }
+  return aiLoading;
+}
+
+document.querySelector('#ai-generate').addEventListener('click', async () => {
+  const entry = triageEntries.get(document.querySelector('#ai-generate').dataset.date);
+  if (!entry) return;
+  const button = document.querySelector('#ai-generate'), status = document.querySelector('#ai-status'), output = document.querySelector('#ai-output');
+  button.disabled = true;
+  try {
+    const engine = await loadAi(status);
+    status.textContent = '生成中…';
+    const facts = readingFacts(entry);
+    const user = `判定結果: ${JSON.stringify(facts)}\n「この日は何が普段と違うか」「どのくらい珍しいか」「次に何を確認するとよいか」を、この順で3文以内で書いてください。`;
+    output.textContent = (await engine.ask(user)).trim();
+    output.hidden = false;
+    status.textContent = engine.kind === 'builtin' ? 'Chrome内蔵AI（Gemini Nano）の読み取り' : 'ブラウザ内AI（Qwen2.5 1.5B）の読み取り';
+  } catch (error) {
+    status.textContent = `AIを使えませんでした: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 async function markDay(date, kind, button) {
   button.disabled = true;
