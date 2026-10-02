@@ -36,7 +36,7 @@ function loadSensitivity() {
 
 function renderSensitivity() {
   document.querySelector('#sensitivity-slider').value = sensitivityIndex(sensitivity);
-  document.querySelector('#sensitivity-value').textContent = `${sensitivityLabel(sensitivity)} · 標準偏差${(3.5 / sensitivity).toFixed(sensitivity === 2 ? 2 : 1).replace(/\.0$/, '')}個分`;
+  document.querySelector('#sensitivity-value').textContent = `判定: 標準偏差×${(3.5 / sensitivity).toFixed(sensitivity === 2 ? 2 : 1).replace(/\.0$/, '')}`;
 }
 
 function loadDayOverrides() {
