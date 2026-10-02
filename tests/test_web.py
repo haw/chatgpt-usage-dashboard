@@ -124,6 +124,15 @@ def test_context_endpoint_returns_rows_around_a_date(tmp_path, monkeypatch):
     assert client.get("/api/context?date=bad").status_code == 422
 
 
+def test_every_view_path_serves_the_page():
+    client = TestClient(app)
+    for path in ("/", "/trends", "/insights", "/insights/2026-09-22", "/individual", "/settings"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert 'id="triage-tab"' in response.text
+    assert client.get("/nope").status_code == 404
+
+
 def test_index_has_four_views():
     response = TestClient(app).get("/")
     assert response.status_code == 200

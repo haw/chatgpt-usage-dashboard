@@ -21,7 +21,13 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
+@app.get("/trends", include_in_schema=False)
+@app.get("/insights", include_in_schema=False)
+@app.get("/insights/{day}", include_in_schema=False)
+@app.get("/individual", include_in_schema=False)
+@app.get("/settings", include_in_schema=False)
+def index(day: str | None = None) -> FileResponse:
+    """Every view has its own path; the page picks the view from the URL and uses the History API."""
     return FileResponse(STATIC_DIR / "index.html")
 
 

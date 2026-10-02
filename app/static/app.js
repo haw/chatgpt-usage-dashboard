@@ -125,7 +125,16 @@ workspaceFiles.addEventListener('change', async () => {
 });
 
 const TABS = ['triage', 'workspace', 'individual', 'settings'];
-function showTab(tab) {
+// Each view has its own path so the browser back button moves between views (and closes the observation panel).
+const TAB_PATHS = {workspace:'/', triage:'/insights', individual:'/individual', settings:'/settings'};
+function routeFromPath(pathname) {
+  const insight = pathname.match(/^\/insights\/(\d{4}-\d{2}-\d{2})\/?$/);
+  if (insight) return {tab:'triage', date:insight[1]};
+  if (pathname === '/trends') return {tab:'workspace'};
+  const tab = Object.keys(TAB_PATHS).find(key => TAB_PATHS[key] === pathname.replace(/\/$/, '') || (pathname === '/' && key === 'workspace'));
+  return {tab: tab || 'workspace'};
+}
+function showTab(tab, {push = true} = {}) {
   document.querySelectorAll('.tab-button').forEach(item => {
     const active = item.dataset.tab === tab;
     item.classList.toggle('active', active);
@@ -133,8 +142,15 @@ function showTab(tab) {
   });
   TABS.forEach(name => { document.querySelector(`#${name}-tab`).hidden = name !== tab; });
   if (tab === 'individual' && !individualLoaded) loadIndividual();
+  if (push && location.pathname !== TAB_PATHS[tab]) history.pushState({tab}, '', TAB_PATHS[tab]);
   window.scrollTo({top:0});
 }
+window.addEventListener('popstate', () => {
+  const route = routeFromPath(location.pathname);
+  showTab(route.tab, {push:false});
+  if (route.date) openContext(route.date, {push:false});
+  else closeContext({back:false});
+});
 document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => showTab(button.dataset.tab)));
 document.querySelector('#kpi-triage').addEventListener('click', () => showTab('triage'));
 
@@ -200,6 +216,12 @@ document.querySelector('#sensitivity-slider').addEventListener('input', event =>
 });
 document.querySelector('#history-button').addEventListener('click', openHistory);
 document.querySelector('#history-close').addEventListener('click', () => document.querySelector('#history-dialog').close());
+// Clicking the backdrop (outside the panel) closes any dialog.
+document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => {
+  if (event.target !== dialog) return;
+  if (dialog.id === 'context-dialog') closeContext({back:true});
+  else dialog.close();
+}));
 async function handleHashCopy(event) {
   const button = event.target.closest('.hash-copy');
   if (!button) return;
@@ -613,7 +635,18 @@ let triageEntries = new Map();
 let contextData = null;  // {entry, rows, date} of the open panel, re-rendered when the mode changes
 const CONTEXT_MODE_KEY = 'chatgpt-dashboard.context-mode.v1';
 let contextMode = (() => { try { const v = localStorage.getItem(CONTEXT_MODE_KEY); return ['box', 'series', 'both'].includes(v) ? v : 'box'; } catch (_) { return 'box'; } })();
-document.querySelector('#context-close').addEventListener('click', () => document.querySelector('#context-dialog').close());
+let contextPushed = false;
+document.querySelector('#context-close').addEventListener('click', () => closeContext({back:true}));
+document.querySelector('#context-dialog').addEventListener('close', () => {  // Esc key and programmatic close
+  if (contextPushed) { contextPushed = false; history.back(); }
+});
+function closeContext({back}) {
+  const dialog = document.querySelector('#context-dialog');
+  if (!dialog.open) return;
+  if (back && contextPushed) { contextPushed = false; dialog.close(); history.back(); return; }
+  contextPushed = false;
+  dialog.close();
+}
 document.querySelectorAll('.context-mode').forEach(button => button.addEventListener('click', () => {
   contextMode = button.dataset.mode;
   try { localStorage.setItem(CONTEXT_MODE_KEY, contextMode); } catch (_) {}
@@ -645,10 +678,11 @@ function metricOf(signal, row) {
   }
 }
 
-async function openContext(date) {
+async function openContext(date, {push = true} = {}) {
   const entry = triageEntries.get(date);
-  if (!entry) return;
+  if (!entry) { if (!push) return; return; }
   const dialog = document.querySelector('#context-dialog');
+  if (push && !contextPushed) { history.pushState({tab:'triage', date}, '', `/insights/${date}`); contextPushed = true; }
   document.querySelector('#context-title').textContent = `${dateLabel(date)} の判定`;
   const charts = document.querySelector('#context-charts');
   charts.innerHTML = '<p class="muted">読み込み中…</p>';
@@ -754,4 +788,7 @@ async function markDay(date, kind, button) {
 renderSensitivity();
 renderDayOverrideList();
 load();
-loadTriage();
+const initialRoute = routeFromPath(location.pathname);
+history.replaceState({tab:initialRoute.tab, date:initialRoute.date}, '', location.pathname);
+showTab(initialRoute.tab, {push:false});
+loadTriage().then(() => { if (initialRoute.date) { contextPushed = true; openContext(initialRoute.date, {push:false}); } });
