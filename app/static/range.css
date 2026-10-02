@@ -84,7 +84,7 @@
 .sensitivity-control { display:flex; align-items:center; gap:8px; white-space:nowrap }
 .sensitivity-control input[type=range] { width:170px; accent-color:#ad5c19 }
 .sensitivity-scale { font-size:.7rem; color:var(--muted) }
-.sensitivity-value { font-size:.85rem; color:#ad5c19; min-width:3.5em; text-align:right }
+.sensitivity-value { font-size:.8rem; color:#ad5c19; min-width:9em; text-align:left; white-space:nowrap }
 .signal-summary { margin:0 0 10px; font-size:.95rem }
 .signal-summary strong { color:#ad5c19 }
 .signal-delta { margin:0 0 12px; padding:8px 12px; border-radius:8px; background:#fff4e6; border:1px solid #ecd6c4; font-size:.8rem }
