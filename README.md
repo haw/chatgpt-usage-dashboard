@@ -23,6 +23,8 @@ docker compose up -d --build dashboard
 
 ## 画面構成
 
+各画面にはパスがあり（`/` 推移、`/insights` インサイト、`/insights/2026-09-22` のように日付を付けると観点パネルを開いた状態、`/individual` 個人別、`/settings` 取込と設定）、ブラウザの戻る・進むで画面と観点パネルを行き来できます。
+
 画面は「答える問い」ごとに4つに分かれています（調査レポート [docs/research/異常検知アラートのUX原則.md](docs/research/異常検知アラートのUX原則.md) に基づく構成です）。
 
 | 画面 | 問い | 内容 |
