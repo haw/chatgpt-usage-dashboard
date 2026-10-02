@@ -644,27 +644,39 @@ async function openContext(date) {
   }
 }
 
+// One-dimensional distribution: where does this day's value sit among the baseline days?
+// Baseline days are dots along the value axis (stacked when they overlap), with the median,
+// the usual range (median ± 1 SD-equivalent) and the threshold; the day is the red marker.
 function renderContextChart(signal, rows, date, kind) {
-  const points = rows.map(row => ({date:row.date, value:metricOf(signal, row), kind:row.day_kind})).filter(p => p.value != null);
-  if (!points.length) return '';
-  const width = 640, height = 170, left = 56, right = 14, top = 14, bottom = 28;
-  const plotWidth = width - left - right, plotHeight = height - top - bottom;
-  const levels = [signal.baseline, signal.threshold].filter(v => v != null);
-  const max = Math.max(1, ...points.map(p => p.value), ...levels) * 1.08;
-  const x = i => left + (points.length === 1 ? plotWidth / 2 : i * plotWidth / (points.length - 1));
-  const y = v => top + plotHeight - v / max * plotHeight;
   const sameKind = signal.detector === 'holiday_usage' ? 'workday' : kind;  // holiday_usage compares a holiday with workdays
-  const dots = points.map((p, i) => {
-    const isDay = p.date === date;
-    const cls = isDay ? 'ctx-day' : p.kind === sameKind ? 'ctx-base' : 'ctx-other';
-    return `<circle cx="${x(i)}" cy="${y(p.value)}" r="${isDay ? 6 : 3.5}" class="${cls}"><title>${p.date}${p.kind === 'holiday' ? '（休日）' : ''} ${fmt.format(Math.round(p.value))}</title></circle>`;
+  const dayRow = rows.find(r => r.date === date);
+  const dayValue = dayRow ? metricOf(signal, dayRow) : signal.value;
+  const windowStart = new Date(`${date}T00:00:00Z`); windowStart.setUTCDate(windowStart.getUTCDate() - 28);
+  const since = windowStart.toISOString().slice(0, 10);
+  const baseline = rows.filter(r => r.date < date && r.date >= since && r.day_kind === sameKind).map(r => ({date:r.date, value:metricOf(signal, r)})).filter(p => p.value != null);
+  if (dayValue == null) return '';
+  const width = 640, height = 150, left = 20, right = 20, axisY = 112;
+  const sorted = baseline.map(p => p.value).sort((a, b) => a - b);
+  const median = signal.baseline != null ? signal.baseline : (sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0);
+  const mad = sorted.length ? [...sorted.map(v => Math.abs(v - median))].sort((a, b) => a - b)[Math.floor(sorted.length / 2)] : 0;
+  const sd = mad / 0.6745;
+  const maxValue = Math.max(1, dayValue, signal.threshold || 0, ...sorted) * 1.08;
+  const x = v => left + v / maxValue * (width - left - right);
+  // stack overlapping dots: bins of ~12px
+  const binWidth = 12, stacks = new Map();
+  const dots = baseline.map(p => {
+    const bin = Math.round(x(p.value) / binWidth);
+    const level = stacks.get(bin) || 0; stacks.set(bin, level + 1);
+    return `<circle cx="${x(p.value)}" cy="${axisY - 8 - level * 9}" r="4" class="ctx-base"><title>${p.date} ${fmt.format(Math.round(p.value))}</title></circle>`;
   }).join('');
-  const line = (v, cls, label) => v == null ? '' : `<line x1="${left}" x2="${width - right}" y1="${y(v)}" y2="${y(v)}" class="${cls}"/><text x="${width - right}" y="${y(v) - 4}" text-anchor="end" class="axis-label">${label} ${compact(v)}</text>`;
-  const step = Math.max(1, Math.ceil(points.length / 8));
-  const labels = points.map((p, i) => i % step === 0 || p.date === date ? `<text x="${x(i)}" y="${height - 8}" text-anchor="middle" class="axis-label${p.date === date ? ' current' : ''}">${p.date.slice(5)}</text>` : '').join('');
-  const title = `${detectorLabels[signal.detector] || signal.detector}${signal.product ? ` · ${signal.product.toUpperCase()}` : ''}`;
+  const band = sd > 0 ? `<rect x="${x(Math.max(0, median - sd))}" y="${18}" width="${x(median + sd) - x(Math.max(0, median - sd))}" height="${axisY - 18}" class="ctx-band"/>` : '';
+  const vline = (v, cls, label, dy) => v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="18" y2="${axisY}" class="${cls}"/><text x="${x(v)}" y="${dy}" text-anchor="middle" class="axis-label">${label} ${compact(v)}</text>`;
   const baseLabel = signal.detector === 'dau_increase' ? 'これまでの最多' : signal.detector === 'holiday_usage' ? '平日の中央値' : '中央値';
-  return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(signal, kind))}</p><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${line(signal.threshold, 'analysis-threshold-line', '判定ライン')}${line(signal.baseline, 'analysis-baseline-line', baseLabel)}${dots}${labels}</svg></section>`;
+  const ticks = [0, .25, .5, .75, 1].map(part => `<text x="${x(maxValue * part)}" y="${axisY + 16}" text-anchor="middle" class="axis-label">${compact(maxValue * part)}</text>`).join('');
+  const day = `<path d="M ${x(dayValue)} ${axisY - 16} l 7 8 l -7 8 l -7 -8 Z" class="ctx-day"><title>${date} ${fmt.format(Math.round(dayValue))}</title></path><text x="${x(dayValue)}" y="${axisY + 32}" text-anchor="middle" class="axis-label current">この日 ${compact(dayValue)}</text>`;
+  const title = `${detectorLabels[signal.detector] || signal.detector}${signal.product ? ` · ${signal.product.toUpperCase()}` : ''}`;
+  const kindLabel = sameKind === 'holiday' ? '休日' : '平日';
+  return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(signal, kind))}</p><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${band}<line x1="${left}" x2="${width - right}" y1="${axisY}" y2="${axisY}" class="grid-line"/>${vline(median, 'analysis-baseline-line', baseLabel, 12)}${vline(signal.threshold, 'analysis-threshold-line', '判定ライン', 12)}${dots}${day}${ticks}</svg><small class="muted">● 基準にした${kindLabel} ${baseline.length}日の値 · 帯: 普段の範囲（${baseLabel}±標準偏差1個分） · ◆ この日</small></section>`;
 }
 
 async function markDay(date, kind, button) {
