@@ -14,6 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
+COPY config ./config
 COPY --from=frontend-assets /build/app/static/vendor ./app/static/vendor
 RUN pip install --no-cache-dir .
 

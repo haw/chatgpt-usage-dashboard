@@ -11,6 +11,8 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      - ./config:/app/config:ro
+      - ./plugins:/app/plugins:ro
     init: true
     restart: unless-stopped
     healthcheck:

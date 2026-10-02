@@ -18,6 +18,8 @@ class Settings:
     s3_bucket: str
     s3_prefix: str
     aws_region: str | None
+    detectors_config: Path
+    plugins_dir: Path
 
     @classmethod
     def from_env(cls, *, require_key: bool = False) -> "Settings":
@@ -43,4 +45,6 @@ class Settings:
             s3_bucket=s3_bucket,
             s3_prefix=os.getenv("S3_PREFIX", "chatgpt-dashboard").strip().strip("/"),
             aws_region=os.getenv("AWS_REGION", "").strip() or None,
+            detectors_config=Path(os.getenv("DETECTORS_CONFIG", "./config/detectors.toml")),
+            plugins_dir=Path(os.getenv("PLUGINS_DIR", "./plugins")),
         )

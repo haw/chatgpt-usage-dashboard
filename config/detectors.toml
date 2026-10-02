@@ -1,0 +1,36 @@
+# 異常検知の設定。アプリ起動中に編集でき、次のリクエストから反映されます。
+#
+# 各 [[detectors]] は1つの検知器です。
+#   id      = 画面や結果に表示される識別子（必須・一意）
+#   use     = 使う検知器クラスの id。省略時は id と同じ。同じクラスを別パラメータで複数登録できる
+#   enabled = false にすると無効化（削除せず残せる）
+#   module  = plugins/ 配下の独自検知器モジュール名。読み込むと @register で登録される
+#   [detectors.params] = 検知器ごとのパラメータ。省略した項目は既定値
+#
+# 組み込み検知器の一覧と既定値は GET /api/detectors で確認できます。
+
+[[detectors]]
+id = "token_spike"
+enabled = true
+[detectors.params]
+z = 3.5
+window_days = 7
+min_history = 5
+high_z = 7.0
+
+[[detectors]]
+id = "dau_change"
+enabled = true
+[detectors.params]
+z = 3.5
+window_days = 7
+min_history = 5
+min_change = 2
+
+# 独自検知器の例（plugins/example_rule.py を参照）
+# [[detectors]]
+# id = "example_rule"
+# module = "example_rule"
+# enabled = true
+# [detectors.params]
+# limit = 500000000

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import date, timedelta
-from statistics import median
 from typing import Any
+
+from app.detectors import DetectionContext, DetectorSet, build_detector_set
 
 
 def build_dashboard(rows: list[dict[str, Any]], state: dict[str, Any]) -> dict[str, Any]:
@@ -84,11 +84,20 @@ def _percentile(values: list[float], percentile: float) -> float:
 PRODUCTS = ("chat", "codex", "work")
 
 
+def default_detectors() -> DetectorSet:
+    from app.config import Settings
+
+    settings = Settings.from_env()
+    return build_detector_set(settings.detectors_config, settings.plugins_dir)
+
+
 def build_individual_dashboard(
     rows: list[dict[str, Any]],
     state: dict[str, Any],
     user_id: str | None = None,
+    detectors: DetectorSet | None = None,
 ) -> dict[str, Any]:
+    detectors = detectors or default_detectors()
     users_by_id: dict[str, dict[str, Any]] = {}
     for row in rows:
         current = users_by_id.setdefault(row["user_id"], {
@@ -102,7 +111,9 @@ def build_individual_dashboard(
     users = sorted(users_by_id.values(), key=lambda item: item["user_label"].casefold())
     selected_id = user_id if user_id in users_by_id else (users[0]["user_id"] if users else None)
     daily = sorted((row for row in rows if row["user_id"] == selected_id), key=lambda row: row["date"])
-    analysis = build_token_analysis(daily)
+    ctx = DetectionContext(rows=daily, scope="individual")
+    analysis = detectors.series(ctx)
+    alerts = detectors.run(ctx)
     total = sum(row["tokens"]["total"] for row in daily)
     product_totals = {product: sum(row["tokens"][product] for row in daily) for product in PRODUCTS}
     return {
@@ -111,12 +122,15 @@ def build_individual_dashboard(
         "selected_user": users_by_id.get(selected_id),
         "daily": daily,
         "analysis": analysis,
+        "alerts": alerts,
+        "detectors": detectors.describe(),
+        "detector_errors": detectors.errors,
         "product_totals": product_totals,
         "kpis": {
             "total_tokens": total,
             "daily_average_tokens": round(total / len(daily)) if daily else 0,
             "latest_tokens": daily[-1]["tokens"]["total"] if daily else 0,
-            "alerts": sum(1 for point in analysis if point["is_anomaly"]),
+            "alerts": len(alerts),
         },
     }
 
@@ -126,7 +140,9 @@ def build_workspace_dashboard(
     state: dict[str, Any],
     start_date: str | None = None,
     end_date: str | None = None,
+    detectors: DetectorSet | None = None,
 ) -> dict[str, Any]:
+    detectors = detectors or default_detectors()
     ordered = sorted(rows, key=lambda row: row["date"])
     selected = [
         row for row in ordered
@@ -134,8 +150,9 @@ def build_workspace_dashboard(
         and (end_date is None or row["date"] <= end_date)
     ]
     period_wide = start_date is not None or end_date is not None
-    alerts = detect_workspace_alerts(selected, period_wide=period_wide)
-    analysis = build_token_analysis(selected, period_wide=period_wide)
+    ctx = DetectionContext(rows=selected, scope="workspace", period_wide=period_wide)
+    alerts = detectors.run(ctx)
+    analysis = detectors.series(ctx)
     token_rows = [row for row in selected if row.get("tokens") is not None]
     dau_rows = [row for row in selected if row.get("active_users") is not None]
     total_tokens = sum(row["tokens"]["total"] for row in token_rows)
@@ -161,6 +178,8 @@ def build_workspace_dashboard(
         "products": products,
         "alerts": alerts,
         "analysis": analysis,
+        "detectors": detectors.describe(),
+        "detector_errors": detectors.errors,
         "available_period": {
             "start_date": ordered[0]["date"] if ordered else None,
             "end_date": ordered[-1]["date"] if ordered else None,
@@ -172,84 +191,6 @@ def build_workspace_dashboard(
     }
 
 
-def build_token_analysis(
-    rows: list[dict[str, Any]],
-    start_date: str | None = None,
-    end_date: str | None = None,
-    period_wide: bool = False,
-) -> list[dict[str, Any]]:
-    """Build total-token observations with the same rolling threshold used by alerts."""
-    rows = [row for row in rows if row.get("tokens") is not None]
-    result: list[dict[str, Any]] = []
-    period_center: float | None = None
-    period_threshold: float | None = None
-    if period_wide and rows:
-        period_values = [row["tokens"]["total"] for row in rows]
-        period_center = float(median(period_values))
-        period_mad = float(median(abs(sample - period_center) for sample in period_values))
-        period_threshold = period_center + (3.5 * period_mad / 0.6745) if period_mad else max(period_center * 2, 1)
-    for index, row in enumerate(rows):
-        if start_date and row["date"] < start_date:
-            continue
-        if end_date and row["date"] > end_date:
-            continue
-        cutoff = (date.fromisoformat(row["date"]) - timedelta(days=7)).isoformat()
-        history = [previous for previous in rows[max(0, index - 7):index] if previous["date"] >= cutoff]
-        center: float | None = None
-        threshold: float | None = None
-        if period_wide:
-            center = period_center
-            threshold = period_threshold
-        elif len(history) >= 5:
-            values = [previous["tokens"]["total"] for previous in history]
-            center = float(median(values))
-            mad = float(median(abs(sample - center) for sample in values))
-            threshold = center + (3.5 * mad / 0.6745) if mad else max(center * 2, 1)
-        value = row["tokens"]["total"]
-        result.append({
-            "date": row["date"],
-            "value": value,
-            "baseline": round(center, 1) if center is not None else None,
-            "threshold": round(threshold, 1) if threshold is not None else None,
-            "is_anomaly": threshold is not None and value >= threshold,
-        })
-    return result
-
-
 def detect_workspace_alerts(rows: list[dict[str, Any]], period_wide: bool = False) -> list[dict[str, Any]]:
-    alerts: list[dict[str, Any]] = []
-    metrics = [("tokens", "total"), *(('tokens', p) for p in PRODUCTS), *(('active_users', p) for p in PRODUCTS)]
-    for group, product in metrics:
-        metric_rows = [row for row in rows if row.get(group) is not None]
-        for index, row in enumerate(metric_rows):
-            cutoff = (date.fromisoformat(row["date"]) - timedelta(days=7)).isoformat()
-            history = metric_rows if period_wide else [
-                previous for previous in metric_rows[max(0, index - 7):index] if previous["date"] >= cutoff
-            ]
-            if (not period_wide and len(history) < 5) or not history:
-                continue
-            values = [previous[group][product] for previous in history]
-            value = row[group][product]
-            center = float(median(values))
-            mad = float(median(abs(sample - center) for sample in values))
-            score = 0.6745 * (value - center) / mad if mad else None
-            if group == "tokens":
-                anomalous = value > center and ((score is not None and score >= 3.5) or (mad == 0 and value >= max(center * 2, 1)))
-                kind = "token_spike"
-            else:
-                ratio_outlier = mad == 0 and ((center == 0 and value >= 2) or (center > 0 and (value >= center * 2 or value <= center * .5)))
-                anomalous = abs(value - center) >= 2 and ((score is not None and abs(score) >= 3.5) or ratio_outlier)
-                kind = "dau_spike" if value > center else "dau_drop"
-            if anomalous:
-                metric_label = "総トークン" if product == "total" else ("トークン" if group == "tokens" else "DAU")
-                alerts.append({
-                    "type": kind,
-                    "metric": metric_label,
-                    "product": None if product == "total" else product,
-                    "date": row["date"],
-                    "value": value,
-                    "baseline": round(center, 1),
-                    "score": round(score, 2) if score is not None else None,
-                    "reason": (f"選択期間の中央値 {center:,.1f} から大きく変化" if period_wide else f"直前{len(history)}日の中央値 {center:,.1f} から大きく変化"),
-                })
-    return sorted(alerts, key=lambda item: (item["date"], item["metric"]), reverse=True)
+    """Run the configured detectors on already-sorted workspace rows."""
+    return default_detectors().run(DetectionContext(rows=rows, scope="workspace", period_wide=period_wide))
