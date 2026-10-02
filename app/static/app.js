@@ -114,7 +114,7 @@ workspaceFiles.addEventListener('change', async () => {
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     render(data);
     loadTriage();
-    setImportMessage(`${data.state.imported_days}日分を取り込みました。「今日の確認」を更新しました。`, 'success');
+    setImportMessage(`${data.state.imported_days}日分を取り込みました。「検出された日」を更新しました。`, 'success');
   } catch (error) {
     setImportMessage(error.message, 'error');
   } finally {
@@ -513,7 +513,7 @@ function setImportMessage(text,kind){const el=document.querySelector('#import-me
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
 function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}
-// ---- 今日の確認 (triage) ----
+// ---- 検出された日 (triage) ----
 const TIER_LABELS = {today:'優先', week:'次に', reference:'参考'};
 
 async function loadTriage() {
