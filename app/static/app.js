@@ -490,7 +490,7 @@ function signalSentence(a){switch(a.type){
   case 'tokens_per_user_spike':case 'tokens_per_user_notable':return `1人あたり${productName(a.product)} ${compact(a.value)}${ratioText(a.value,a.baseline)}`;
   case 'dau_spike':case 'dau_spike_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人（普段 ${fmt.format(a.baseline)}人）`;
   case 'dau_drop':case 'dau_drop_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人に減少（普段 ${fmt.format(a.baseline)}人）`;
-  case 'dau_new_max':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人、直近の最大 ${fmt.format(a.baseline)}人 を更新`;
+  case 'dau_new_max':return `${productName(a.product)}の利用者 ${fmt.format(a.value)}人は直前28日で最多（これまでの最多 ${fmt.format(a.baseline)}人、+${fmt.format(a.value-a.baseline)}人）`;
   case 'holiday_usage':return `休日なのに平日並みの利用 ${compact(a.value)}（平日の ${Math.round(a.value/a.baseline*100)}%）`;
   case 'stale_data':return a.reason;
   default:return `${detectorLabels[a.detector]||a.type}: ${a.reason}`}}

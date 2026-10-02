@@ -10,7 +10,7 @@ PRODUCTS = ("chat", "codex", "work")
 @register
 class DauIncrease(Detector):
     id = "dau_increase"
-    label = "DAU新規最大"
+    label = "利用者数が直近最多"
     description = (
         "製品別のアクティブユーザー数が、同じ区分の直前期間の最大値を上回った日を検出します。"
         "小規模ワークスペースで不正なアカウントが1つ増えたような、+1人の変化を取りこぼさないための補助判定です。"
@@ -38,6 +38,6 @@ class DauIncrease(Detector):
                 signals.append(Signal(
                     detector=self.id, type="dau_new_max", severity=self.params["severity"],
                     metric="DAU", product=product, date=row["date"], value=value, baseline=previous_max,
-                    reason=f"直前{len(history)}{kind_label}の最大 {previous_max}人 を {value - previous_max}人 上回りました",
+                    reason=f"直前{len(history)}{kind_label}で最も多かった {previous_max}人 より {value - previous_max}人 多い",
                 ))
         return signals
