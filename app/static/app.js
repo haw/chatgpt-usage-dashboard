@@ -795,6 +795,14 @@ document.querySelectorAll('.ai-model').forEach(button => button.addEventListener
 const AI_DEFAULT_SYSTEM = '役割: 統計の知識がない担当者向けに、ChatGPT利用量ダッシュボードの1日分の判定結果を日本語で説明する。\n' +
   '制約: 与えられたJSONの数値だけを根拠にする。推測や、不正・悪意の断定はしない。専門用語（標準偏差・中央値・判定ライン）は使わず、「普段の何倍」「偶然では起きにくい」のような言葉に言い換える。3文以内、敬体。';
 const AI_DEFAULT_USER = '判定結果: {facts}\n「この日は何が普段と違うか」「どのくらい珍しいか」「次に何を確認するとよいか」を、この順で3文以内で書いてください。';
+const AI_EXPERT_SYSTEM = '役割: 統計に慣れた分析担当者向けに、ChatGPT利用量ダッシュボードの1日分の判定結果を日本語で簡潔に解説する。\n' +
+  '前提: 各観点は、同じ区分（平日/休日）の直前28日を基準サンプルとし、中央値とMAD（中央絶対偏差、0.6745で割って標準偏差相当に換算）によるロバストZスコアで判定している。既に異常と判定した日は基準から除外している。sd はその日のロバストZスコア、threshold は判定ライン、usual は基準の中央値、ratio は中央値に対する倍率、streak は連続日数。\n' +
+  '制約: 与えられたJSONの数値だけを根拠にする。不正・悪意の断定はしない。用語（ロバストZスコア、MAD、中央値、判定ライン）はそのまま使ってよい。基準サンプルが少ない（休日など）場合や、複数観点が同じ指標に由来する場合（総量と製品別、総量と1人あたり）は独立した証拠として数えない旨を一言添える。4文以内、常体。';
+const AI_EXPERT_USER = '判定結果: {facts}\n各観点のZスコアと倍率を根拠に、(1) 統計的にどの程度異常か、(2) 観点どうしの独立性と証拠の強さ、(3) 判定の限界（サンプル数・区分推定・継続の扱い）、(4) 次に確認すべきデータ、を4文以内で述べよ。';
+const AI_PRESETS = {
+  beginner: {label:'統計の知識がない人向け', system:AI_DEFAULT_SYSTEM, user:AI_DEFAULT_USER},
+  expert: {label:'統計に詳しい人向け', system:AI_EXPERT_SYSTEM, user:AI_EXPERT_USER},
+};
 const AI_PROMPT_KEY = 'chatgpt-dashboard.ai-prompts.v1';
 let aiPrompts = (() => {
   try {
@@ -820,6 +828,12 @@ document.querySelector('#ai-prompt-form').addEventListener('submit', event => {
   try { localStorage.setItem(AI_PROMPT_KEY, JSON.stringify(aiPrompts)); setAiPromptMessage('このブラウザに保存しました。次の読み取りから使います。', 'success'); }
   catch (_) { setAiPromptMessage('ブラウザへ保存できませんでした。', 'error'); }
 });
+document.querySelectorAll('.ai-preset').forEach(button => button.addEventListener('click', () => {
+  const preset = AI_PRESETS[button.dataset.preset];
+  document.querySelector('#ai-system-prompt').value = preset.system;
+  document.querySelector('#ai-user-prompt').value = preset.user;
+  setAiPromptMessage(`「${preset.label}」を読み込みました。内容を確認して「プロンプトを保存」を押すと使われます。`, '');
+}));
 document.querySelector('#ai-prompt-reset').addEventListener('click', () => {
   aiPrompts = {system:AI_DEFAULT_SYSTEM, user:AI_DEFAULT_USER};
   AI_SYSTEM = AI_DEFAULT_SYSTEM;
