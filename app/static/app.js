@@ -514,7 +514,7 @@ function setMessage(text,kind){const el=document.querySelector('#message');el.te
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
 function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}
 // ---- 今日の確認 (triage) ----
-const TIER_LABELS = {today:'今日確認', week:'今週確認', reference:'参考'};
+const TIER_LABELS = {today:'優先', week:'次に', reference:'参考'};
 
 async function loadTriage() {
   try {
@@ -531,6 +531,7 @@ async function loadTriage() {
 
 function renderTriage(data) {
   const status = data.status || {};
+  triageEntries = new Map([...(data.today || []), ...(data.week || []), ...(data.reference || [])].map(e => [e.date, e]));
   const statusEl = document.querySelector('#triage-status');
   if (!status.latest_date) {
     statusEl.textContent = 'データがありません。「取込と設定」からJSONを取り込んでください。';
@@ -549,11 +550,11 @@ function renderTriage(data) {
   const kpi = document.querySelector('#alert-count');
   kpi.textContent = status.latest_date ? fmt.format((data.today || []).length) : '—';
   document.querySelector('#alert-detail').textContent = status.latest_date
-    ? `${(data.week || []).length ? `今週 ${(data.week || []).length}日 · ` : ''}${status.stale ? '取込が止まっています · ' : ''}クリックで確認へ`
+    ? `${(data.week || []).length ? `次に ${(data.week || []).length}日 · ` : ''}${status.stale ? '取込が止まっています · ' : ''}クリックで一覧へ`
     : 'データ取込後に判定';
   document.querySelector('#kpi-triage').classList.toggle('all-clear', !!status.latest_date && !(data.today || []).length);
-  renderTriageList('today', data.today || [], status.latest_date ? '今日確認する日はありません' : '');
-  renderTriageList('week', data.week || [], '今週確認する日はありません');
+  renderTriageList('today', data.today || [], status.latest_date ? '優先して確認する日はありません' : '');
+  renderTriageList('week', data.week || [], '次に確認する日はありません');
   renderTriageList('reference', data.reference || [], '参考の日はありません');
 }
 
@@ -579,21 +580,13 @@ function renderTriageEntry(entry) {
     <header><span class="tier-badge ${esc(entry.tier)}">${TIER_LABELS[entry.tier]}</span><strong class="triage-date">${dateLabel(entry.date)}</strong><span class="triage-facts">${facts.map(esc).join(' · ')}</span><span class="triage-change">${esc(change)}</span><span class="triage-count">${strong.length ? `${entry.detectors}つの観点` : '参考のみ'}</span></header>
     <ul class="triage-observations">${strong.map(line).join('')}</ul>
     ${info.length ? `<details class="triage-info"><summary>参考 ${info.length}件</summary><ul class="triage-observations">${info.map(line).join('')}</ul></details>` : ''}
-    <div class="triage-actions">${checkedText}<button type="button" class="check-button" data-date="${esc(entry.date)}" data-kind="${checked ? 'cleared' : 'checked'}">${checked ? '未確認に戻す' : '確認済みにする'}</button><button type="button" class="inspect-button" data-date="${esc(entry.date)}">推移で見る</button></div>
+    <div class="triage-actions">${checkedText}<button type="button" class="check-button" data-date="${esc(entry.date)}" data-kind="${checked ? 'cleared' : 'checked'}">${checked ? '未確認に戻す' : '確認済みにする'}</button><button type="button" class="inspect-button" data-date="${esc(entry.date)}">グラフで見る</button></div>
   </article>`;
 }
 
 document.querySelector('#triage-tab').addEventListener('click', event => {
   const inspect = event.target.closest('.inspect-button');
-  if (inspect) {
-    const day = new Date(`${inspect.dataset.date}T00:00:00Z`);
-    const start = new Date(day); start.setUTCDate(start.getUTCDate() - 20);
-    const end = new Date(day); end.setUTCDate(end.getUTCDate() + 7);
-    const clamp = value => value > availablePeriod.end_date ? availablePeriod.end_date : value < availablePeriod.start_date ? availablePeriod.start_date : value;
-    showTab('workspace');
-    load(clamp(start.toISOString().slice(0, 10)), clamp(end.toISOString().slice(0, 10)));
-    return;
-  }
+  if (inspect) { openContext(inspect.dataset.date); return; }
   const check = event.target.closest('.check-button');
   if (check) markDay(check.dataset.date, check.dataset.kind, check);
 });
@@ -614,6 +607,65 @@ document.querySelector('#checked-reset').addEventListener('click', async event =
     button.disabled = false;
   }
 });
+
+// ---- floating "how it crossed the line" charts ----
+let triageEntries = new Map();
+document.querySelector('#context-close').addEventListener('click', () => document.querySelector('#context-dialog').close());
+
+function metricOf(signal, row) {
+  const p = signal.product;
+  switch (signal.detector) {
+    case 'tokens_per_user': return row.tokens && row.active_users && row.active_users[p] ? row.tokens[p] / row.active_users[p] : null;
+    case 'dau_change': case 'dau_increase': return row.active_users ? row.active_users[p] : null;
+    case 'holiday_usage': return row.tokens ? row.tokens.total : null;
+    default: return row.tokens ? row.tokens[p || 'total'] : null;
+  }
+}
+
+async function openContext(date) {
+  const entry = triageEntries.get(date);
+  if (!entry) return;
+  const dialog = document.querySelector('#context-dialog');
+  document.querySelector('#context-title').textContent = `${dateLabel(date)} の判定`;
+  const charts = document.querySelector('#context-charts');
+  charts.innerHTML = '<p class="muted">読み込み中…</p>';
+  dialog.showModal();
+  try {
+    const query = withDayOverrides(new URLSearchParams({date}));
+    query.delete('sensitivity');
+    const response = await fetch(`/api/context?${query}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    const strong = entry.observations.filter(o => o.severity !== 'info');
+    const list = strong.length ? strong : entry.observations;
+    charts.innerHTML = list.map(o => renderContextChart(o, data.rows, date, entry.facts.kind)).join('');
+  } catch (error) {
+    charts.innerHTML = `<p class="message error">読み込みに失敗しました: ${esc(error.message)}</p>`;
+  }
+}
+
+function renderContextChart(signal, rows, date, kind) {
+  const points = rows.map(row => ({date:row.date, value:metricOf(signal, row), kind:row.day_kind})).filter(p => p.value != null);
+  if (!points.length) return '';
+  const width = 640, height = 170, left = 56, right = 14, top = 14, bottom = 28;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom;
+  const levels = [signal.baseline, signal.threshold].filter(v => v != null);
+  const max = Math.max(1, ...points.map(p => p.value), ...levels) * 1.08;
+  const x = i => left + (points.length === 1 ? plotWidth / 2 : i * plotWidth / (points.length - 1));
+  const y = v => top + plotHeight - v / max * plotHeight;
+  const sameKind = signal.detector === 'holiday_usage' ? 'workday' : kind;  // holiday_usage compares a holiday with workdays
+  const dots = points.map((p, i) => {
+    const isDay = p.date === date;
+    const cls = isDay ? 'ctx-day' : p.kind === sameKind ? 'ctx-base' : 'ctx-other';
+    return `<circle cx="${x(i)}" cy="${y(p.value)}" r="${isDay ? 6 : 3.5}" class="${cls}"><title>${p.date}${p.kind === 'holiday' ? '（休日）' : ''} ${fmt.format(Math.round(p.value))}</title></circle>`;
+  }).join('');
+  const line = (v, cls, label) => v == null ? '' : `<line x1="${left}" x2="${width - right}" y1="${y(v)}" y2="${y(v)}" class="${cls}"/><text x="${width - right}" y="${y(v) - 4}" text-anchor="end" class="axis-label">${label} ${compact(v)}</text>`;
+  const step = Math.max(1, Math.ceil(points.length / 8));
+  const labels = points.map((p, i) => i % step === 0 || p.date === date ? `<text x="${x(i)}" y="${height - 8}" text-anchor="middle" class="axis-label${p.date === date ? ' current' : ''}">${p.date.slice(5)}</text>` : '').join('');
+  const title = `${detectorLabels[signal.detector] || signal.detector}${signal.product ? ` · ${signal.product.toUpperCase()}` : ''}`;
+  const baseLabel = signal.detector === 'dau_increase' ? 'これまでの最多' : signal.detector === 'holiday_usage' ? '平日の中央値' : '中央値';
+  return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(signal, kind))}</p><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${line(signal.threshold, 'analysis-threshold-line', '判定ライン')}${line(signal.baseline, 'analysis-baseline-line', baseLabel)}${dots}${labels}</svg></section>`;
+}
 
 async function markDay(date, kind, button) {
   button.disabled = true;

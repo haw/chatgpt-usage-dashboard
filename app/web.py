@@ -84,6 +84,28 @@ def triage(
     )
 
 
+@app.get("/api/context")
+def context(
+    date_: date = Query(alias="date"),
+    before: int = Query(default=35, ge=1, le=120),
+    after: int = Query(default=7, ge=0, le=60),
+    holidays: str | None = Query(default=None),
+    workdays: str | None = Query(default=None),
+) -> dict:
+    """Daily rows around one date with their day kind, for the per-observation mini charts."""
+    from datetime import timedelta
+
+    from app.detectors.calendar import classify_days
+
+    storage = create_storage(Settings.from_env())
+    rows = sorted(storage.load_workspace_usage(), key=lambda row: row["date"])
+    days = classify_days(rows, _day_overrides(holidays, workdays))
+    start = (date_ - timedelta(days=before)).isoformat()
+    end = (date_ + timedelta(days=after)).isoformat()
+    window = [{**row, "day_kind": days[row["date"]]["kind"]} for row in rows if start <= row["date"] <= end]
+    return {"date": date_.isoformat(), "rows": window}
+
+
 @app.post("/api/dispositions")
 def record_disposition(payload: dict = Body(...)) -> dict:
     """Mark a day as checked (or clear the mark) so it leaves the triage list."""

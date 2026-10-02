@@ -112,12 +112,25 @@ def test_day_overrides_are_applied_from_query_and_form(tmp_path, monkeypatch):
     assert client.get("/api/individual?holidays=2026-09-01").status_code == 200
 
 
+def test_context_endpoint_returns_rows_around_a_date(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    days = [f"2026-09-{day:02d}" for day in range(1, 11)]
+    files = [("files", ("tokens.json", analytics_json("tokens", days), "application/json"))]
+    assert client.post("/api/import", files=files).status_code == 200
+    body = client.get("/api/context?date=2026-09-08&before=3&after=1").json()
+    assert [row["date"] for row in body["rows"]] == ["2026-09-05", "2026-09-06", "2026-09-07", "2026-09-08", "2026-09-09"]
+    assert body["rows"][0]["day_kind"] == "holiday"  # Saturday
+    assert client.get("/api/context?date=bad").status_code == 422
+
+
 def test_index_has_four_views():
     response = TestClient(app).get("/")
     assert response.status_code == 200
     for view in ("triage", "workspace", "individual", "settings"):
         assert f'id="{view}-tab"' in response.text
-    assert "今日の確認" in response.text and "取込と設定" in response.text
+    assert "検出された日" in response.text and "取込と設定" in response.text
+    assert 'id="context-dialog"' in response.text
     assert 'id="triage-today"' in response.text and 'id="workspace-json-files"' in response.text
     assert 'id="settings-dialog"' in response.text
     assert 'id="individual-five-hour-hits"' in response.text
