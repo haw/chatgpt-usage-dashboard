@@ -17,6 +17,8 @@ docker compose up -d --build dashboard
 
 「アップロードして分析」を押すと、既存データへ日付単位で上書き保存されます。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
 
+ローカルの保存データだけを削除する場合は、プロジェクトルートで `make clear-data` を実行し、確認に `y` と入力します。`./data` の中身だけを削除し、S3には接続しません。`data/.gitkeep` は残ります。
+
 ## 表示と異常検知
 
 - Chat、Codex、Work別の日次アクティブユーザー
