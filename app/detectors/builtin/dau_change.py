@@ -17,9 +17,10 @@ class DauChange(Detector):
     )
     group = "dau"
     default_params = {
-        "z": 3.5, "window_days": 28, "min_history": 5, "min_change": 2,
+        "z": 3.5, "info_z": 2.0, "window_days": 28, "min_history": 5, "min_change": 2,
         "same_kind_only": True, "exclude_anomalies": True,
     }
+    sensitivity_params = ("z", "info_z", "min_change")
 
     def detect(self, ctx: DetectionContext) -> list[Signal]:
         signals: list[Signal] = []
@@ -40,14 +41,17 @@ class DauChange(Detector):
                 score = robust_score(value, center, mad)
                 ratio_outlier = mad == 0 and (
                     (center == 0 and value >= 2) or (center > 0 and (value >= center * 2 or value <= center * .5)))
-                if abs(value - center) < self.params["min_change"]:
+                if abs(value - center) < self.tuned("min_change", ctx):
                     continue
-                if not ((score is not None and abs(score) >= self.params["z"]) or ratio_outlier):
+                is_anomaly = (score is not None and abs(score) >= self.tuned("z", ctx)) or ratio_outlier
+                if not is_anomaly and (score is None or abs(score) < self.tuned("info_z", ctx)):
                     continue
-                flagged.add(row["date"])
+                if is_anomaly:
+                    flagged.add(row["date"])
                 kind_label = "休日" if ctx.kind(row["date"]) == "holiday" else "平日"
                 signals.append(Signal(
-                    detector=self.id, type="dau_spike" if value > center else "dau_drop", severity="medium",
+                    detector=self.id, type=("dau_spike" if value > center else "dau_drop") + ("" if is_anomaly else "_notable"),
+                    severity="medium" if is_anomaly else "info",
                     metric="DAU", product=product, date=row["date"], value=value, baseline=round(center, 1),
                     score=round(score, 2) if score is not None else None,
                     reason=(f"選択期間の{kind_label}中央値 {center:,.1f} から大きく変化" if ctx.period_wide

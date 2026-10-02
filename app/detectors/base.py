@@ -50,6 +50,7 @@ class DetectionContext:
     period_wide: bool = False
     day_kinds: dict[str, str] = field(default_factory=dict)
     today: str | None = None
+    sensitivity: float = 1.0  # viewer-chosen multiplier; >1 makes every detector more sensitive
 
     def rows_with(self, group: str) -> list[dict[str, Any]]:
         return [row for row in self.rows if row.get(group) is not None]
@@ -67,6 +68,7 @@ class Detector:
     group: ClassVar[str] = "tokens"
     scopes: ClassVar[tuple[str, ...]] = ("workspace",)
     default_params: ClassVar[dict[str, Any]] = {}
+    sensitivity_params: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         unknown = set(params or {}) - set(self.default_params)
@@ -76,6 +78,15 @@ class Detector:
 
     def detect(self, ctx: DetectionContext) -> list[Signal]:
         raise NotImplementedError
+
+    def tuned(self, name: str, ctx: DetectionContext) -> float:
+        """A threshold-like parameter divided by the viewer's sensitivity.
+
+        Parameters listed in ``sensitivity_params`` shrink as sensitivity grows,
+        so one slider tightens every detector consistently.
+        """
+        value = self.params[name]
+        return value / ctx.sensitivity if name in self.sensitivity_params else value
 
     def series(self, ctx: DetectionContext) -> list[dict[str, Any]] | None:
         """Optional per-day baseline/threshold series for charting."""
@@ -89,4 +100,5 @@ class Detector:
             "group": self.group,
             "scopes": list(self.scopes),
             "params": dict(self.params),
+            "sensitivity_params": list(self.sensitivity_params),
         }

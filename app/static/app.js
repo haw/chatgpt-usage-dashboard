@@ -15,6 +15,33 @@ const DEFAULT_LIMITS = {fiveHour:26300000, weekly:173000000};
 const LIMIT_SETTINGS_KEY = 'chatgpt-dashboard.limit-settings.v1';
 let limitSettings = loadLimitSettings();
 const DAY_OVERRIDES_KEY = 'chatgpt-dashboard.day-overrides.v1';
+const SENSITIVITY_KEY = 'chatgpt-dashboard.sensitivity.v1';
+let sensitivity = loadSensitivity();
+
+function loadSensitivity() {
+  try {
+    const saved = Number(localStorage.getItem(SENSITIVITY_KEY));
+    if (saved >= 0.25 && saved <= 4) return saved;
+  } catch (_) {}
+  return 1;
+}
+
+// Slider position -4..4 maps to a 0.25x..4x multiplier so each step feels equal.
+const sliderToSensitivity = position => Math.round(Math.pow(2, position / 2) * 100) / 100;
+const sensitivityToSlider = value => Math.round(Math.log2(value) * 2);
+
+function describeSensitivity(value) {
+  if (value >= 2) return '高（小さな変化も表示）';
+  if (value > 1) return 'やや高';
+  if (value === 1) return '標準';
+  if (value > 0.5) return 'やや低';
+  return '低（大きな変化のみ）';
+}
+
+function renderSensitivity() {
+  document.querySelector('#sensitivity-slider').value = sensitivityToSlider(sensitivity);
+  document.querySelector('#sensitivity-value').textContent = `×${sensitivity} ${describeSensitivity(sensitivity)}`;
+}
 let dayOverrides = loadDayOverrides();
 let currentPeriod = {start:null, end:null};
 
@@ -33,6 +60,7 @@ function persistDayOverrides() {
 
 // Viewer-specific holiday/workday overrides travel with every request as query or form fields.
 function withDayOverrides(target) {
+  if (sensitivity !== 1) target.set('sensitivity', String(sensitivity));
   const holidays = Object.keys(dayOverrides).filter(date => dayOverrides[date] === 'holiday').sort().join(',');
   const workdays = Object.keys(dayOverrides).filter(date => dayOverrides[date] === 'workday').sort().join(',');
   if (holidays) target.set('holidays', holidays);
@@ -153,6 +181,24 @@ document.querySelector('#settings-reset').addEventListener('click', () => {
 });
 
 document.querySelector('#reset-range').addEventListener('click', () => load());
+let sensitivityTimer = null;
+document.querySelector('#sensitivity-slider').addEventListener('input', event => {
+  sensitivity = sliderToSensitivity(Number(event.target.value));
+  renderSensitivity();
+  try { localStorage.setItem(SENSITIVITY_KEY, String(sensitivity)); } catch (_) {}
+  clearTimeout(sensitivityTimer);
+  sensitivityTimer = setTimeout(() => {
+    load(currentPeriod.start, currentPeriod.end);
+    if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
+  }, 250);
+});
+document.querySelector('#sensitivity-reset').addEventListener('click', () => {
+  sensitivity = 1;
+  renderSensitivity();
+  try { localStorage.setItem(SENSITIVITY_KEY, '1'); } catch (_) {}
+  load(currentPeriod.start, currentPeriod.end);
+  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
+});
 document.querySelector('#daily-table').addEventListener('click', event => {
   const button = event.target.closest('.day-kind-toggle');
   if (button) toggleDayOverride(button.dataset.date, button.dataset.auto);
@@ -229,7 +275,7 @@ function render(data) {
   renderDetectorErrors(data.detector_errors || []);
   document.querySelector('#pending-note').textContent = data.pending_days ? `判定保留 ${fmt.format(data.pending_days)}日（同じ区分の基準データが不足）` : '';
   renderAlerts(data.alerts);
-  renderTable(data.daily);
+  renderTable(data.daily, data.alerts);
 }
 
 function renderSignalFilters(detectors) {
@@ -406,7 +452,7 @@ function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null) {
     if (current.length) segments.push(current);
     return segments.map(segment => `<polyline points="${segment.join(' ')}" class="${css}" fill="none" vector-effect="non-scaling-stroke"/>`).join('');
   };
-  const actualDots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row.value)}" r="${row.is_anomaly?6:3}" class="${row.is_anomaly?'analysis-anomaly':'analysis-dot'}"><title>${row.date}${row.kind==='holiday'?'（休日）':''} 実測: ${fmt.format(row.value)}${row.baseline === null?'（判定保留: 同じ区分の基準不足）':` / 中央値: ${fmt.format(row.baseline)} / 判定ライン: ${fmt.format(row.threshold)}`}</title></circle>`).join('');
+  const actualDots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row.value)}" r="${row.is_anomaly?6:row.is_notable?4.5:3}" class="${row.is_anomaly?'analysis-anomaly':row.is_notable?'analysis-notable':'analysis-dot'}"><title>${row.date}${row.kind==='holiday'?'（休日）':''} 実測: ${fmt.format(row.value)}${row.baseline === null?'（判定保留: 同じ区分の基準不足）':` / 中央値: ${fmt.format(row.baseline)} / 判定ライン: ${fmt.format(row.threshold)}`}</title></circle>`).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length/10));
   const labels = rows.map((row,index) => index%labelStep===0 || index===rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label${row.kind==='holiday'?' holiday':''}" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
   const narrowed = selector === '#analysis-chart' && availablePeriod.start_date && rows.length && (rows[0].date !== availablePeriod.start_date || rows.at(-1).date !== availablePeriod.end_date);
@@ -485,10 +531,12 @@ async function copyText(value){if(navigator.clipboard&&window.isSecureContext){a
 function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=signalFilters[row.detector]!==false;const service=row.product||'overall';return signalVisible&&severityFilters[row.severity]!==false&&serviceFilters[service]!==false});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const severityLabels={high:'高',medium:'中',info:'参考'};el.className='alerts';el.innerHTML=visible.map(row=>`<article class="${esc(row.severity)}"><b><span class="severity ${esc(row.severity)}">${severityLabels[row.severity]||esc(row.severity)}</span>${esc(detectorLabels[row.detector]||row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}${row.baseline!=null?`（基準 ${fmt.format(row.baseline)}）`:row.threshold!=null?`（判定 ${fmt.format(row.threshold)}）`:''}</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
 function dayKindCell(row){const kind=row.day_kind||'workday';const source=row.day_kind_source||'weekday';const sourceLabels={weekend:'週末',weekday:'暦',inferred:'推定',override:'手動'};const auto=source==='override'?(kind==='holiday'?'workday':'holiday'):kind;return `<td><button type="button" class="day-kind-toggle day-kind ${esc(kind)} ${esc(source)}" data-date="${esc(row.date)}" data-auto="${esc(source==='override'?auto:kind)}" title="クリックで${kind==='holiday'?'平日':'休日'}に切替（このブラウザだけに保存）">${kind==='holiday'?'休日':'平日'}<small>${sourceLabels[source]||esc(source)}</small></button></td>`}
-function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="9" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
+function signalBadge(date,alerts){const rows=alerts.filter(a=>a.date===date);if(!rows.length)return '<td></td>';const rank={high:0,medium:1,info:2};const top=rows.reduce((best,row)=>rank[row.severity]<rank[best]?row.severity:best,'info');const detail=rows.map(a=>`${detectorLabels[a.detector]||a.type}${a.product?` (${a.product.toUpperCase()})`:''}`).join('\n');return `<td><span class="signal-badge severity ${esc(top)}" title="${esc(detail)}">${rows.length}件</span></td>`}
+function renderTable(rows,alerts=[]){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="10" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${signalBadge(row.date,alerts)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
 function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}
+renderSensitivity();
 load();

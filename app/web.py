@@ -29,6 +29,17 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+SENSITIVITY_RANGE = (0.25, 4.0)
+
+
+def _sensitivity(value: float | None) -> float:
+    if value is None:
+        return 1.0
+    if not (SENSITIVITY_RANGE[0] <= value <= SENSITIVITY_RANGE[1]):
+        raise HTTPException(status_code=400, detail=f"感度は {SENSITIVITY_RANGE[0]}〜{SENSITIVITY_RANGE[1]} で指定してください")
+    return value
+
+
 def _day_overrides(holidays: str | None, workdays: str | None) -> dict[str, str]:
     """Viewer-specific holiday/workday overrides, sent from the browser's localStorage."""
     try:
@@ -43,6 +54,7 @@ def dashboard(
     end_date: date | None = Query(default=None),
     holidays: str | None = Query(default=None),
     workdays: str | None = Query(default=None),
+    sensitivity: float | None = Query(default=None),
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="開始日は終了日以前にしてください")
@@ -54,6 +66,7 @@ def dashboard(
         start_date.isoformat() if start_date else None,
         end_date.isoformat() if end_date else None,
         day_overrides=_day_overrides(holidays, workdays),
+        sensitivity=_sensitivity(sensitivity),
     )
 
 
@@ -75,11 +88,12 @@ def individual_dashboard(
     user_id: str | None = Query(default=None),
     holidays: str | None = Query(default=None),
     workdays: str | None = Query(default=None),
+    sensitivity: float | None = Query(default=None),
 ) -> dict:
     storage = create_storage(Settings.from_env())
     return build_individual_dashboard(
         storage.load_individual_usage(), storage.load_individual_import_state(), user_id,
-        day_overrides=_day_overrides(holidays, workdays),
+        day_overrides=_day_overrides(holidays, workdays), sensitivity=_sensitivity(sensitivity),
     )
 
 
@@ -99,8 +113,10 @@ async def import_json(
     tokens_file: UploadFile | None = File(default=None),
     holidays: str | None = Form(default=None),
     workdays: str | None = Form(default=None),
+    sensitivity: float | None = Form(default=None),
 ) -> dict:
     overrides = _day_overrides(holidays, workdays)
+    sensitivity_value = _sensitivity(sensitivity)
     payloads: dict[str, bytes] = {}
     upload_format = "json"
     if files is None:
@@ -164,7 +180,8 @@ async def import_json(
         "run_id": run_id,
     }
     storage.save_import_state(state)
-    return build_workspace_dashboard(storage.load_workspace_usage(), state, day_overrides=overrides)
+    return build_workspace_dashboard(storage.load_workspace_usage(), state, day_overrides=overrides,
+                                     sensitivity=sensitivity_value)
 
 
 @app.post("/api/individual/import")
@@ -173,8 +190,10 @@ async def import_individual_json(
     tokens_file: UploadFile = File(...),
     holidays: str | None = Form(default=None),
     workdays: str | None = Form(default=None),
+    sensitivity: float | None = Form(default=None),
 ) -> dict:
     overrides = _day_overrides(holidays, workdays)
+    sensitivity_value = _sensitivity(sensitivity)
     label = " ".join(user_label.split())
     if not label or len(label) > 200:
         raise HTTPException(status_code=400, detail="ユーザー名またはメールアドレスを200文字以内で指定してください")
@@ -211,4 +230,5 @@ async def import_individual_json(
     }
     storage.save_individual_import_metadata(run_id, state)
     storage.save_individual_import_state(state)
-    return build_individual_dashboard(storage.load_individual_usage(), state, user_id, day_overrides=overrides)
+    return build_individual_dashboard(storage.load_individual_usage(), state, user_id, day_overrides=overrides,
+                                      sensitivity=sensitivity_value)

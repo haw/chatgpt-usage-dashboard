@@ -98,6 +98,7 @@ def build_individual_dashboard(
     user_id: str | None = None,
     detectors: DetectorSet | None = None,
     day_overrides: dict[str, str] | None = None,
+    sensitivity: float = 1.0,
 ) -> dict[str, Any]:
     detectors = detectors or default_detectors()
     users_by_id: dict[str, dict[str, Any]] = {}
@@ -114,7 +115,8 @@ def build_individual_dashboard(
     selected_id = user_id if user_id in users_by_id else (users[0]["user_id"] if users else None)
     daily = sorted((row for row in rows if row["user_id"] == selected_id), key=lambda row: row["date"])
     days = classify_days(daily, day_overrides, infer=False)
-    ctx = DetectionContext(rows=daily, scope="individual", day_kinds={d: v["kind"] for d, v in days.items()})
+    ctx = DetectionContext(rows=daily, scope="individual", day_kinds={d: v["kind"] for d, v in days.items()},
+                           sensitivity=sensitivity)
     analysis = detectors.series(ctx)
     alerts = detectors.run(ctx)
     daily = _with_day_kinds(daily, days)
@@ -146,6 +148,8 @@ def build_workspace_dashboard(
     end_date: str | None = None,
     detectors: DetectorSet | None = None,
     day_overrides: dict[str, str] | None = None,
+    sensitivity: float = 1.0,
+    today: str | None = None,
 ) -> dict[str, Any]:
     detectors = detectors or default_detectors()
     ordered = sorted(rows, key=lambda row: row["date"])
@@ -157,7 +161,7 @@ def build_workspace_dashboard(
     ]
     period_wide = start_date is not None or end_date is not None
     ctx = DetectionContext(rows=selected, scope="workspace", period_wide=period_wide,
-                           day_kinds={d: v["kind"] for d, v in days.items()})
+                           day_kinds={d: v["kind"] for d, v in days.items()}, sensitivity=sensitivity, today=today)
     alerts = detectors.run(ctx)
     analysis = detectors.series(ctx)
     selected = _with_day_kinds(selected, days)
@@ -187,6 +191,7 @@ def build_workspace_dashboard(
         "alerts": alerts,
         "analysis": analysis,
         "pending_days": sum(1 for point in analysis if point.get("threshold") is None),
+        "sensitivity": sensitivity,
         "detectors": detectors.describe(),
         "detector_errors": detectors.errors,
         "available_period": {

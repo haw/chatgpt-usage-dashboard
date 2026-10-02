@@ -1,0 +1,253 @@
+{
+  "chart_key": "tokens",
+  "chart_title": "Tokens",
+  "summary": {
+    "is_partial": true,
+    "label": "Tokens",
+    "previous_value": 0,
+    "value": 3198600000
+  },
+  "series": [
+    {
+      "column": "Chat",
+      "key": "chatgpt",
+      "label": "Chat",
+      "source": "credits_reporting",
+      "summary": {
+        "is_partial": true,
+        "label": "Chat",
+        "previous_value": 0,
+        "value": 1582000000
+      }
+    },
+    {
+      "column": "Codex",
+      "key": "codex",
+      "label": "Codex",
+      "source": "credits_reporting",
+      "summary": {
+        "is_partial": true,
+        "label": "Codex",
+        "previous_value": 0,
+        "value": 1534300000
+      }
+    },
+    {
+      "column": "Work",
+      "key": "work",
+      "label": "Work",
+      "source": "credits_reporting",
+      "summary": {
+        "is_partial": true,
+        "label": "Work",
+        "previous_value": 0,
+        "value": 82300000
+      }
+    }
+  ],
+  "rows": [
+    {
+      "Start Time": "2026-09-03",
+      "End Time": "2026-09-04",
+      "Chat": 71000000,
+      "Codex": 69000000,
+      "Work": 6400000
+    },
+    {
+      "Start Time": "2026-09-04",
+      "End Time": "2026-09-05",
+      "Chat": 51000000,
+      "Codex": 57000000,
+      "Work": 6700000
+    },
+    {
+      "Start Time": "2026-09-05",
+      "End Time": "2026-09-06",
+      "Chat": 18000000,
+      "Codex": 21000000,
+      "Work": 0
+    },
+    {
+      "Start Time": "2026-09-06",
+      "End Time": "2026-09-07",
+      "Chat": 6000000,
+      "Codex": 26000000,
+      "Work": 1000000
+    },
+    {
+      "Start Time": "2026-09-07",
+      "End Time": "2026-09-08",
+      "Chat": 90000000,
+      "Codex": 54000000,
+      "Work": 3600000
+    },
+    {
+      "Start Time": "2026-09-08",
+      "End Time": "2026-09-09",
+      "Chat": 38000000,
+      "Codex": 103000000,
+      "Work": 7500000
+    },
+    {
+      "Start Time": "2026-09-09",
+      "End Time": "2026-09-10",
+      "Chat": 60000000,
+      "Codex": 62000000,
+      "Work": 1900000
+    },
+    {
+      "Start Time": "2026-09-10",
+      "End Time": "2026-09-11",
+      "Chat": 64000000,
+      "Codex": 42000000,
+      "Work": 2700000
+    },
+    {
+      "Start Time": "2026-09-11",
+      "End Time": "2026-09-12",
+      "Chat": 78000000,
+      "Codex": 66000000,
+      "Work": 5800000
+    },
+    {
+      "Start Time": "2026-09-12",
+      "End Time": "2026-09-13",
+      "Chat": 35000000,
+      "Codex": 29000000,
+      "Work": 700000
+    },
+    {
+      "Start Time": "2026-09-13",
+      "End Time": "2026-09-14",
+      "Chat": 27000000,
+      "Codex": 20000000,
+      "Work": 0
+    },
+    {
+      "Start Time": "2026-09-14",
+      "End Time": "2026-09-15",
+      "Chat": 83000000,
+      "Codex": 84000000,
+      "Work": 4400000
+    },
+    {
+      "Start Time": "2026-09-15",
+      "End Time": "2026-09-16",
+      "Chat": 61000000,
+      "Codex": 59000000,
+      "Work": 1300000
+    },
+    {
+      "Start Time": "2026-09-16",
+      "End Time": "2026-09-17",
+      "Chat": 40000000,
+      "Codex": 69000000,
+      "Work": 3000000
+    },
+    {
+      "Start Time": "2026-09-17",
+      "End Time": "2026-09-18",
+      "Chat": 85000000,
+      "Codex": 52000000,
+      "Work": 6900000
+    },
+    {
+      "Start Time": "2026-09-18",
+      "End Time": "2026-09-19",
+      "Chat": 33000000,
+      "Codex": 54000000,
+      "Work": 2600000
+    },
+    {
+      "Start Time": "2026-09-19",
+      "End Time": "2026-09-20",
+      "Chat": 26000000,
+      "Codex": 11000000,
+      "Work": 0
+    },
+    {
+      "Start Time": "2026-09-20",
+      "End Time": "2026-09-21",
+      "Chat": 21000000,
+      "Codex": 6000000,
+      "Work": 0
+    },
+    {
+      "Start Time": "2026-09-21",
+      "End Time": "2026-09-22",
+      "Chat": 108000000,
+      "Codex": 1100000,
+      "Work": 500000
+    },
+    {
+      "Start Time": "2026-09-22",
+      "End Time": "2026-09-23",
+      "Chat": 106000000,
+      "Codex": 1300000,
+      "Work": 1700000
+    },
+    {
+      "Start Time": "2026-09-23",
+      "End Time": "2026-09-24",
+      "Chat": 122000000,
+      "Codex": 900000,
+      "Work": 2000000
+    },
+    {
+      "Start Time": "2026-09-24",
+      "End Time": "2026-09-25",
+      "Chat": 79000000,
+      "Codex": 73000000,
+      "Work": 1300000
+    },
+    {
+      "Start Time": "2026-09-25",
+      "End Time": "2026-09-26",
+      "Chat": 34000000,
+      "Codex": 108000000,
+      "Work": 1700000
+    },
+    {
+      "Start Time": "2026-09-26",
+      "End Time": "2026-09-27",
+      "Chat": 19000000,
+      "Codex": 23000000,
+      "Work": 1200000
+    },
+    {
+      "Start Time": "2026-09-27",
+      "End Time": "2026-09-28",
+      "Chat": 28000000,
+      "Codex": 30000000,
+      "Work": 0
+    },
+    {
+      "Start Time": "2026-09-28",
+      "End Time": "2026-09-29",
+      "Chat": 86000000,
+      "Codex": 80000000,
+      "Work": 8000000
+    },
+    {
+      "Start Time": "2026-09-29",
+      "End Time": "2026-09-30",
+      "Chat": 36000000,
+      "Codex": 40000000,
+      "Work": 3900000
+    },
+    {
+      "Start Time": "2026-09-30",
+      "End Time": "2026-10-01",
+      "Chat": 63000000,
+      "Codex": 88000000,
+      "Work": 500000
+    },
+    {
+      "Start Time": "2026-10-01",
+      "End Time": "2026-10-02",
+      "Chat": 14000000,
+      "Codex": 205000000,
+      "Work": 7000000
+    }
+  ]
+}

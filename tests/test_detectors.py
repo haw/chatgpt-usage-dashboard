@@ -46,7 +46,7 @@ def test_config_disables_reparametrises_and_duplicates_detectors(tmp_path):
     noisy = [100, 110, 90, 105, 95, 100, 110]  # MAD > 0 so z controls the threshold
     rows = [usage(day, chat_tokens=noisy[day - 1]) for day in range(1, 8)] + [usage(8, chat_tokens=1000)]
     signals = detectors.run(DetectionContext(rows=rows))
-    assert {s["detector"] for s in signals} == {"token_spike_loose"}
+    assert {s["detector"] for s in signals if s["severity"] != "info"} == {"token_spike_loose"}
     assert not any(s["type"].startswith("dau") for s in signals)
 
 
