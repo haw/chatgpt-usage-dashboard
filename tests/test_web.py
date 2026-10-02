@@ -74,6 +74,29 @@ def test_json_batch_accepts_different_periods_and_validates_before_saving(tmp_pa
     assert client.get("/api/imports").json()["imports"][0]["days"] == 2
 
 
+def test_detectors_endpoint_lists_configured_detectors():
+    response = TestClient(app).get("/api/detectors")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["errors"] == []
+    assert {d["id"] for d in body["detectors"]} >= {"token_spike", "dau_change"}
+    assert all({"label", "description", "group", "scopes", "params"} <= set(d) for d in body["detectors"])
+
+
+def test_dashboard_signals_carry_detector_and_severity(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    days = [f"2026-09-{day:02d}" for day in range(1, 8)]
+    files = [("files", ("tokens.json", analytics_json("tokens", days), "application/json"))]
+    assert client.post("/api/import", files=files).status_code == 200
+    files = [("files", ("tokens.json", analytics_json("tokens", ["2026-09-08"], 1000), "application/json"))]
+    data = client.post("/api/import", files=files).json()
+    assert data["kpis"]["alerts"] >= 1
+    assert {alert["detector"] for alert in data["alerts"]} == {"token_spike"}
+    assert all(alert["severity"] in {"high", "medium", "info"} for alert in data["alerts"])
+    assert [d["id"] for d in data["detectors"]] == [d["id"] for d in client.get("/api/detectors").json()["detectors"]]
+
+
 def test_index_has_workspace_and_individual_tabs():
     response = TestClient(app).get("/")
     assert response.status_code == 200

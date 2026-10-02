@@ -7,7 +7,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.analytics import build_individual_dashboard, build_workspace_dashboard
+from app.analytics import build_individual_dashboard, build_workspace_dashboard, default_detectors
 from app.config import Settings
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
 from app.json_importer import JSONImportError, parse_token_json, parse_workspace_json
@@ -43,6 +43,13 @@ def dashboard(
         start_date.isoformat() if start_date else None,
         end_date.isoformat() if end_date else None,
     )
+
+
+@app.get("/api/detectors")
+def detectors() -> dict:
+    """List configured detectors (id, label, parameters) and configuration errors."""
+    configured = default_detectors()
+    return {"detectors": configured.describe(), "errors": configured.errors}
 
 
 @app.get("/api/imports")

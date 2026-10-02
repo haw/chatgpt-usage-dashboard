@@ -4,7 +4,9 @@ const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;',
 const products = ['chat', 'codex', 'work'];
 const colors = {chat:'#176b4d', codex:'#3478a4', work:'#d49a31'};
 let availablePeriod = {start_date:null, end_date:null};
-const signalFilters = {tokens:true, dau:true};
+const signalFilters = {};
+const severityFilters = {high:true, medium:true, info:true};
+let detectorLabels = {};
 const serviceFilters = {overall:true, chat:true, codex:true, work:true};
 let currentAlerts = [];
 let individualLoaded = false;
@@ -129,11 +131,20 @@ async function handleHashCopy(event) {
 }
 document.querySelector('#history-table').addEventListener('click', handleHashCopy);
 document.querySelector('#individual-history-table').addEventListener('click', handleHashCopy);
-document.querySelectorAll('.signal-toggle').forEach(button => button.addEventListener('click', () => {
+document.querySelector('#signal-filters').addEventListener('click', event => {
+  const button = event.target.closest('.signal-toggle');
+  if (!button) return;
   const signal = button.dataset.signal;
   signalFilters[signal] = !signalFilters[signal];
   button.classList.toggle('active', signalFilters[signal]);
   button.setAttribute('aria-pressed', String(signalFilters[signal]));
+  renderAlerts(currentAlerts);
+});
+document.querySelectorAll('.severity-toggle').forEach(button => button.addEventListener('click', () => {
+  const severity = button.dataset.severity;
+  severityFilters[severity] = !severityFilters[severity];
+  button.classList.toggle('active', severityFilters[severity]);
+  button.setAttribute('aria-pressed', String(severityFilters[severity]));
   renderAlerts(currentAlerts);
 }));
 document.querySelectorAll('.service-toggle').forEach(button => button.addEventListener('click', () => {
@@ -160,8 +171,28 @@ function render(data) {
   renderLineChart('#dau-chart', data.daily, 'active_users');
   renderLineChart('#token-chart', data.daily, 'tokens');
   renderAnalysisChart(data.analysis || [], '#analysis-chart', `${selected.start_date !== availablePeriod.start_date || selected.end_date !== availablePeriod.end_date ? '選択期間全体の中央値とMAD' : '全期間の直前最大7日（最低5日）'}から計算`);
+  renderSignalFilters(data.detectors || []);
+  renderDetectorErrors(data.detector_errors || []);
   renderAlerts(data.alerts);
   renderTable(data.daily);
+}
+
+function renderSignalFilters(detectors) {
+  const container = document.querySelector('#signal-filters');
+  detectorLabels = Object.fromEntries(detectors.map(d => [d.id, d.label]));
+  container.querySelectorAll('.signal-control').forEach(el => el.remove());
+  detectors.filter(d => d.scopes.includes('workspace')).forEach(d => {
+    if (!(d.id in signalFilters)) signalFilters[d.id] = true;
+    const active = signalFilters[d.id];
+    const params = Object.entries(d.params || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(', ');
+    container.insertAdjacentHTML('beforeend', `<span class="signal-control"><button type="button" class="signal-toggle${active ? ' active' : ''}" data-signal="${esc(d.id)}" aria-pressed="${active}">${esc(d.label)}</button><span class="help signal-help" tabindex="0" aria-label="${esc(d.label)}の判定条件">?<span class="help-content"><strong>${esc(d.label)}</strong><br>${esc(d.description)}${params ? `<br><small>設定: ${params}</small>` : ''}</span></span></span>`);
+  });
+}
+
+function renderDetectorErrors(errors) {
+  const el = document.querySelector('#detector-errors');
+  el.textContent = errors.length ? `検知器の設定に問題があります:\n${errors.join('\n')}` : '';
+  el.className = errors.length ? 'message error' : 'message hidden';
 }
 
 async function loadIndividual(userId) {
@@ -387,7 +418,7 @@ function renderIndividualHistory(rows){const table=document.querySelector('#indi
 function fileSize(bytes){if(bytes<1024)return `${fmt.format(bytes)} B`;return `${new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(bytes/1024)} KiB`}
 function historyFile(bytes,hash){if(bytes == null || !hash)return '—';const short=`${hash.slice(0,12)}…${hash.slice(-12)}`;return `<span class="file-size">${fileSize(bytes)}</span><button type="button" class="hash-copy" data-hash="${esc(hash)}" aria-label="SHA-256をコピー" title="${esc(hash)}"><code>${short}</code><span class="material-icons copy-icon" aria-hidden="true">content_copy</span><span class="copy-feedback" role="status">コピーしました</span></button>`}
 async function copyText(value){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);return}const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove()}
-function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=row.type==='token_spike'?signalFilters.tokens:signalFilters.dau;const service=row.product||'overall';return signalVisible&&serviceFilters[service]});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const labels={token_spike:'トークン急増',dau_spike:'DAU急増',dau_drop:'DAU急減'};el.className='alerts';el.innerHTML=visible.map(row=>`<article><b>${labels[row.type]||esc(row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}（基準 ${fmt.format(row.baseline)}）</span><small>${esc(row.reason)}</small></article>`).join('')}
+function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=signalFilters[row.detector]!==false;const service=row.product||'overall';return signalVisible&&severityFilters[row.severity]!==false&&serviceFilters[service]!==false});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const severityLabels={high:'高',medium:'中',info:'参考'};el.className='alerts';el.innerHTML=visible.map(row=>`<article class="${esc(row.severity)}"><b><span class="severity ${esc(row.severity)}">${severityLabels[row.severity]||esc(row.severity)}</span>${esc(detectorLabels[row.detector]||row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}${row.baseline!=null?`（基準 ${fmt.format(row.baseline)}）`:row.threshold!=null?`（判定 ${fmt.format(row.threshold)}）`:''}</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
 function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
