@@ -9,10 +9,37 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
+def _existing_path(directory: Path, preferred: str, legacy: str) -> Path:
+    current = directory / preferred
+    return current if current.exists() else directory / legacy
+
+
+def _existing_name(names: set[str], preferred: str, legacy: str) -> str | None:
+    if preferred in names:
+        return preferred
+    return legacy if legacy in names else None
+
+
+def _import_dates(path: Path) -> list[str]:
+    return _import_dates_from_bytes(path.read_bytes(), path.name)
+
+
+def _import_dates_from_bytes(payload: bytes, name: str) -> list[str]:
+    if name.endswith(".json"):
+        document = json.loads(payload.decode("utf-8-sig"))
+        rows = document.get("rows", []) if isinstance(document, dict) else []
+        return [str(row["Start Time"])[:10] for row in rows if isinstance(row, dict) and row.get("Start Time")]
+    text = payload.decode("utf-8-sig")
+    return [(row.get("Start Time") or "").strip()[:10]
+            for row in csv.DictReader(StringIO(text))
+            if (row.get("Start Time") or "").strip()]
+
+
 class Storage(Protocol):
     def create_run(self) -> str: ...
     def save_raw_page(self, run_id: str, page_number: int, payload: Any) -> Any: ...
     def save_raw_csv(self, run_id: str, name: str, payload: bytes) -> Any: ...
+    def save_raw_json(self, run_id: str, name: str, payload: bytes) -> Any: ...
     def list_import_history(self) -> list[dict[str, Any]]: ...
     def load_workspace_usage(self) -> list[dict[str, Any]]: ...
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int: ...
@@ -56,22 +83,24 @@ class LocalStorage:
         path.write_bytes(payload)
         return path
 
+    def save_raw_json(self, run_id: str, name: str, payload: bytes) -> Path:
+        if name not in {"active-users.json", "tokens.json", "individual-tokens.json"}:
+            raise ValueError("unsupported raw JSON name")
+        path = self.raw_dir / run_id / name
+        path.write_bytes(payload)
+        return path
+
     def list_import_history(self) -> list[dict[str, Any]]:
         history: list[dict[str, Any]] = []
         for run_dir in self.raw_dir.iterdir():
             if not run_dir.is_dir():
                 continue
-            active_path = run_dir / "active-users.csv"
-            token_path = run_dir / "tokens.csv"
+            active_path = _existing_path(run_dir, "active-users.json", "active-users.csv")
+            token_path = _existing_path(run_dir, "tokens.json", "tokens.csv")
             if not active_path.exists() or not token_path.exists():
                 continue
             try:
-                text = active_path.read_text(encoding="utf-8-sig")
-                dates = [
-                    (row.get("Start Time") or "").strip()[:10]
-                    for row in csv.DictReader(StringIO(text))
-                    if (row.get("Start Time") or "").strip()
-                ]
+                dates = _import_dates(active_path)
                 imported_at = datetime.strptime(
                     run_dir.name, "%Y%m%dT%H%M%S.%fZ"
                 ).replace(tzinfo=timezone.utc).isoformat()
@@ -99,15 +128,14 @@ class LocalStorage:
         history: list[dict[str, Any]] = []
         latest_state = self.load_individual_import_state()
         for run_dir in self.raw_dir.iterdir():
-            csv_path = run_dir / "individual-tokens.csv"
-            if not run_dir.is_dir() or not csv_path.exists():
+            if not run_dir.is_dir():
+                continue
+            import_path = _existing_path(run_dir, "individual-tokens.json", "individual-tokens.csv")
+            if not import_path.exists():
                 continue
             try:
-                payload = csv_path.read_bytes()
-                text = payload.decode("utf-8-sig")
-                dates = [(row.get("Start Time") or "").strip()[:10]
-                         for row in csv.DictReader(StringIO(text))
-                         if (row.get("Start Time") or "").strip()]
+                payload = import_path.read_bytes()
+                dates = _import_dates(import_path)
                 imported_at = datetime.strptime(run_dir.name, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).isoformat()
                 metadata_path = run_dir / "individual-import.json"
                 metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
@@ -270,6 +298,12 @@ class S3Storage:
         digest = hashlib.sha256(payload).hexdigest()
         return self._put(f"raw/{run_id}/{name}", payload, "text/csv", {"sha256": digest})
 
+    def save_raw_json(self, run_id: str, name: str, payload: bytes) -> str:
+        if name not in {"active-users.json", "tokens.json", "individual-tokens.json"}:
+            raise ValueError("unsupported raw JSON name")
+        digest = hashlib.sha256(payload).hexdigest()
+        return self._put(f"raw/{run_id}/{name}", payload, "application/json", {"sha256": digest})
+
     def list_import_history(self) -> list[dict[str, Any]]:
         root = self._key("raw/")
         paginator = self.client.get_paginator("list_objects_v2")
@@ -282,17 +316,16 @@ class S3Storage:
                     runs.setdefault(parts[0], set()).add(parts[1])
         history: list[dict[str, Any]] = []
         for run_id, names in runs.items():
-            if not {"active-users.csv", "tokens.csv"}.issubset(names):
+            active_name = _existing_name(names, "active-users.json", "active-users.csv")
+            token_name = _existing_name(names, "tokens.json", "tokens.csv")
+            if not active_name or not token_name:
                 continue
             try:
-                active = self._get(f"raw/{run_id}/active-users.csv")
-                tokens = self._get(f"raw/{run_id}/tokens.csv")
+                active = self._get(f"raw/{run_id}/{active_name}")
+                tokens = self._get(f"raw/{run_id}/{token_name}")
                 if active is None or tokens is None:
                     continue
-                text = active.decode("utf-8-sig")
-                dates = [(row.get("Start Time") or "").strip()[:10]
-                         for row in csv.DictReader(StringIO(text))
-                         if (row.get("Start Time") or "").strip()]
+                dates = _import_dates_from_bytes(active, active_name)
                 imported_at = datetime.strptime(run_id, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).isoformat()
             except (UnicodeDecodeError, ValueError):
                 continue
@@ -324,16 +357,14 @@ class S3Storage:
         latest_state = self.load_individual_import_state()
         history: list[dict[str, Any]] = []
         for run_id, names in runs.items():
-            if "individual-tokens.csv" not in names:
+            import_name = _existing_name(names, "individual-tokens.json", "individual-tokens.csv")
+            if not import_name:
                 continue
             try:
-                payload = self._get(f"raw/{run_id}/individual-tokens.csv")
+                payload = self._get(f"raw/{run_id}/{import_name}")
                 if payload is None:
                     continue
-                text = payload.decode("utf-8-sig")
-                dates = [(row.get("Start Time") or "").strip()[:10]
-                         for row in csv.DictReader(StringIO(text))
-                         if (row.get("Start Time") or "").strip()]
+                dates = _import_dates_from_bytes(payload, import_name)
                 imported_at = datetime.strptime(run_id, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).isoformat()
                 metadata_body = self._get(f"raw/{run_id}/individual-import.json")
                 metadata = json.loads(metadata_body.decode()) if metadata_body else {}

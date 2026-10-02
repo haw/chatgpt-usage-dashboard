@@ -1,18 +1,19 @@
-# ChatGPT Usage Dashboard — 集計CSV版MVP仕様書
+# ChatGPT Usage Dashboard — 集計JSON版仕様書
 
 ## 1. 目的
 
-ChatGPT管理画面から出力した日次集計CSVを管理者が手動アップロードし、ワークスペース全体の利用推移と異常兆候を確認できるダッシュボードを提供する。
+ChatGPT管理画面から出力した日次集計JSONを管理者が手動アップロードし、ワークスペース全体の利用推移と異常兆候を確認できるダッシュボードを提供する。
 
 監査ログと会話本文は扱わない。個人別分析では管理者が指定したユーザー識別子と集計トークン数だけを扱う。表示する異常は調査のきっかけとなる統計的な兆候であり、不正利用を断定するものではない。
 
 ## 2. MVPスコープ
 
-- 「1日のアクティブユーザー数」と「トークン消費量」の2 CSVをブラウザから同時にアップロードする。
-- 個人別分析では、対象ユーザーで絞り込んだ「トークン消費量」CSVとユーザー識別子をアップロードする。
-- CSV列 `Start Time, End Time, Chat, Codex, Work` を検証し、開始日をキーに結合する。
-- UTF-8（BOMありを含む）、非負整数、日付の一意性、両CSVの日付一致を検証する。
-- 取込元CSVを加工せず保存し、正規化データは日付単位で冪等に置換する。
+- `chart_key` が `active-users` と `tokens` の2つのAnalytics JSONをブラウザから同時にアップロードする。
+- 画面のファイル選択はJSONのみとし、旧CSV形式はAPI互換用として同種2ファイルの組合せに限り受け付ける。
+- 個人別分析では、対象ユーザーで絞り込んだ `chart_key: "tokens"` のJSONとユーザー識別子をアップロードする。
+- `series` 内にChat・Codex・Workが各1つあることと、`rows` の開始日・終了日・系列値を検証して開始日をキーに結合する。
+- UTF-8 JSON、正しい `chart_key`、非負整数、日付の一意性、2 JSONの日付一致を検証する。
+- 取込元JSONを加工せず保存し、正規化データは日付単位で冪等に置換する。
 - ローカルでは `./data` 配下をストレージとして使用する。
 - ダッシュボードは保存済みデータだけを読み、OpenAI APIへアクセスしない。
 - Docker Composeでダッシュボードを実行できる。
@@ -22,7 +23,7 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 ## 3. 画面要件
 
 - 全体分析と個人別分析をタブで分離し、切り替えて利用できる。
-- CSVアップロード: アクティブユーザーCSV、トークンCSV、取込結果
+- JSONアップロード: アクティブユーザーJSON、トークンJSON、取込結果
 - 取込状態: 最終成功日時、対象期間、日数、エラー状態
 - KPI: 最新日の製品別最大DAU、期間総トークン、日平均トークン、検出アラート数
 - Chat/Codex/Work別の日次アクティブユーザー推移
@@ -33,14 +34,14 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 - 総トークンの異常分析グラフ（実測値、直前7日中央値、判定ライン、検出点）
 - `?` アイコンのホバー／フォーカスで判定条件を表示
 - 日次データ表
-- 個人別分析では対象ユーザー名またはメールアドレスと、そのユーザーで絞り込んだトークンCSVを取り込む。
+- 個人別分析では対象ユーザー名またはメールアドレスと、そのユーザーで絞り込んだトークンJSONを取り込む。
 - 保存済みユーザーを選択し、期間総量、日平均、最新値、異常件数、製品別推移、異常分析、日次表を表示する。
 - 個人別のCodex + Workトークンから、5時間枠・週次枠への到達相当回数と声かけ目安を表示する。
 - 設定画面で5時間・週次の参考上限を変更し、初期値へリセットできる。
 - 個人の日次表にCodex + Work、5時間枠消費率、到達相当回数を表示する。
 - 個人の週次表を月曜から日曜で集計し、製品別トークン、Codex + Work、週次枠消費率、到達相当回数を表示する。
 - 右上の保存データ履歴は両方の分析タブで表示し、同じ画面内に全体データと個人データの履歴を分けて表示する。
-- 個人別CSVの保存履歴に取込日時、ユーザー、対象期間、日数、サイズ、SHA-256を表示する。
+- 個人別JSONの保存履歴に取込日時、ユーザー、対象期間、日数、サイズ、SHA-256を表示する。
 
 ## 4. 異常判定
 
@@ -71,9 +72,9 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 
 ```text
 data/
-  raw/<run-id>/active-users.csv
-  raw/<run-id>/tokens.csv
-  raw/<run-id>/individual-tokens.csv
+  raw/<run-id>/active-users.json
+  raw/<run-id>/tokens.json
+  raw/<run-id>/individual-tokens.json
   raw/<run-id>/individual-import.json
   normalized/workspace-usage.jsonl
   normalized/individual-usage.jsonl
@@ -89,17 +90,17 @@ data/
 
 ## 6. API
 
-- `POST /api/import`: multipartで `active_users_file` と `tokens_file` を受け付ける。
+- `POST /api/import`: multipartでJSON形式の `active_users_file` と `tokens_file` を受け付ける。
 - `GET /api/dashboard`: 保存済み集計と異常兆候を返す。
 - `GET /health`: ヘルスチェックを返す。
-- `POST /api/individual/import`: ユーザー識別子と個人別トークンCSVを取り込む。
+- `POST /api/individual/import`: ユーザー識別子と個人別トークンJSONを取り込む。
 - `GET /api/individual`: ユーザー一覧と選択ユーザーの集計を返す。
-- `GET /api/individual/imports`: 個人別CSVの保存履歴を返す。
+- `GET /api/individual/imports`: 個人別JSONの保存履歴を返す（以前のCSV履歴も含む）。
 - 入力不備はHTTP 400、ファイル上限超過はHTTP 413で返す。
 
 ## 7. セキュリティ
 
-- `.env`、`data/`、実データCSVをGit管理しない。
+- `.env`、`data/`、実データJSONをGit管理しない。
 - アップロード名を保存パスに使用せず、固定ファイル名で保存する。
 - Dockerイメージに `.env` と利用データを含めない。
 - MVPのWeb画面には認証を含めず、ローカルホスト向けとする。本番ではCognito等を必須とする。
@@ -115,7 +116,7 @@ data/
 ## 9. S3保存
 
 - `STORAGE_BACKEND=s3` の場合、ローカルと同じ論理構造を指定バケットの `S3_PREFIX` 配下へ保存する。
-- raw CSV、正規化JSONL、取込状態、旧Analytics APIのraw JSONと状態をS3へ保存する。
+- raw JSON、正規化JSONL、取込状態、旧Analytics APIのraw JSONと状態をS3へ保存する。
 - AWS認証情報はアプリへ保存せず、ECSタスクロールなどboto3の標準認証チェーンを利用する。
 - 必要なS3権限は対象プレフィックスの `GetObject`、`PutObject` と、raw履歴取得のための `ListBucket` とする。
 - 正規化JSONLはread-modify-writeで更新するため、複数ライターによる同時更新は対象外とする。

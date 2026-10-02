@@ -31,7 +31,7 @@ document.querySelector('#upload-form').addEventListener('submit', async event =>
   const button = event.currentTarget.querySelector('button');
   button.disabled = true;
   button.textContent = '取込中…';
-  setMessage('CSVを検証しています。', '');
+  setMessage('JSONの形式を検証しています。', '');
   try {
     const response = await fetch('/api/import', {method:'POST', body:new FormData(event.currentTarget)});
     const data = await response.json();
@@ -63,7 +63,7 @@ document.querySelector('#individual-upload-form').addEventListener('submit', asy
   const button = event.currentTarget.querySelector('button');
   button.disabled = true;
   button.textContent = '取込中…';
-  setIndividualMessage('CSVを検証しています。', '');
+  setIndividualMessage('JSONの形式を検証しています。', '');
   try {
     const response = await fetch('/api/individual/import', {method:'POST', body:new FormData(event.currentTarget)});
     const data = await response.json();
@@ -368,8 +368,8 @@ function enableRangeDrag(svg, rows, left, plotWidth) {
 
 function compact(value) { return new Intl.NumberFormat('ja-JP', {notation:'compact', maximumFractionDigits:1}).format(value); }
 async function openHistory(){const dialog=document.querySelector('#history-dialog');const table=document.querySelector('#history-table');const individualTable=document.querySelector('#individual-history-table');table.innerHTML='<tr><td colspan="5" class="empty">読み込み中</td></tr>';individualTable.innerHTML='<tr><td colspan="5" class="empty">読み込み中</td></tr>';dialog.showModal();try{const [overallResponse,individualResponse]=await Promise.all([fetch('/api/imports'),fetch('/api/individual/imports')]);const overall=await overallResponse.json();const individual=await individualResponse.json();if(!overallResponse.ok)throw new Error(overall.detail||`HTTP ${overallResponse.status}`);if(!individualResponse.ok)throw new Error(individual.detail||`HTTP ${individualResponse.status}`);renderHistory(overall.imports||[]);renderIndividualHistory(individual.imports||[])}catch(error){const message=`<tr><td colspan="5" class="empty">履歴を読み込めません: ${esc(error.message)}</td></tr>`;table.innerHTML=message;individualTable.innerHTML=message}}
-function renderHistory(rows){const table=document.querySelector('#history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存されたCSV履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.active_users_bytes,row.active_users_sha256)}</td><td>${historyFile(row.tokens_bytes,row.tokens_sha256)}</td></tr>`).join('')}
-function renderIndividualHistory(rows){const table=document.querySelector('#individual-history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存された個人CSV履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.user_label)}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.bytes,row.sha256)}</td></tr>`).join('')}
+function renderHistory(rows){const table=document.querySelector('#history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存されたJSON履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.active_users_bytes,row.active_users_sha256)}</td><td>${historyFile(row.tokens_bytes,row.tokens_sha256)}</td></tr>`).join('')}
+function renderIndividualHistory(rows){const table=document.querySelector('#individual-history-table');if(!rows.length){table.innerHTML='<tr><td colspan="5" class="empty">保存された個人JSON履歴はありません</td></tr>';return}table.innerHTML=rows.map((row,index)=>`<tr><td>${new Date(row.imported_at).toLocaleString('ja-JP')}${index===0?' <span class="latest-badge">最新</span>':''}</td><td>${esc(row.user_label)}</td><td>${esc(row.start_date||'—')} – ${esc(row.end_date||'—')}</td><td>${fmt.format(row.days)}日</td><td>${historyFile(row.bytes,row.sha256)}</td></tr>`).join('')}
 function fileSize(bytes){if(bytes<1024)return `${fmt.format(bytes)} B`;return `${new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(bytes/1024)} KiB`}
 function historyFile(bytes,hash){const short=`${hash.slice(0,12)}…${hash.slice(-12)}`;return `<span class="file-size">${fileSize(bytes)}</span><button type="button" class="hash-copy" data-hash="${esc(hash)}" aria-label="SHA-256をコピー" title="${esc(hash)}"><code>${short}</code><span class="material-icons copy-icon" aria-hidden="true">content_copy</span><span class="copy-feedback" role="status">コピーしました</span></button>`}
 async function copyText(value){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);return}const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove()}

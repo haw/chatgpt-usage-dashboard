@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.analytics import build_individual_dashboard, build_workspace_dashboard
 from app.config import Settings
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
+from app.json_importer import JSONImportError, parse_and_join_json, parse_token_json
 from app.storage import create_storage
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -68,23 +69,41 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
 @app.post("/api/import")
-async def import_csv(
+async def import_json(
     active_users_file: UploadFile = File(...),
     tokens_file: UploadFile = File(...),
 ) -> dict:
+    active_suffix = Path(active_users_file.filename or "").suffix.lower()
+    token_suffix = Path(tokens_file.filename or "").suffix.lower()
+    if active_suffix not in {".json", ".csv"}:
+        raise HTTPException(status_code=400, detail="アクティブユーザーJSON（.json）を選択してください")
+    if token_suffix not in {".json", ".csv"}:
+        raise HTTPException(status_code=400, detail="トークンJSON（.json）を選択してください")
+    if active_suffix != token_suffix:
+        raise HTTPException(status_code=400, detail="2つのファイルは同じ形式に揃えてください")
     active_bytes = await active_users_file.read(MAX_UPLOAD_BYTES + 1)
     token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
     if len(active_bytes) > MAX_UPLOAD_BYTES or len(token_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="CSVは1ファイル5 MiB以下にしてください")
-    try:
-        rows = parse_and_join(active_bytes, token_bytes)
-    except CSVImportError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=413, detail="1ファイル5 MiB以下にしてください")
+    if active_suffix == ".csv":
+        try:
+            rows = parse_and_join(active_bytes, token_bytes)
+        except CSVImportError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        try:
+            rows = parse_and_join_json(active_bytes, token_bytes)
+        except JSONImportError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     storage = create_storage(Settings.from_env())
     run_id = storage.create_run()
-    storage.save_raw_csv(run_id, "active-users.csv", active_bytes)
-    storage.save_raw_csv(run_id, "tokens.csv", token_bytes)
+    if active_suffix == ".csv":
+        storage.save_raw_csv(run_id, "active-users.csv", active_bytes)
+        storage.save_raw_csv(run_id, "tokens.csv", token_bytes)
+    else:
+        storage.save_raw_json(run_id, "active-users.json", active_bytes)
+        storage.save_raw_json(run_id, "tokens.json", token_bytes)
     total_rows = storage.merge_workspace_usage(rows)
     now = datetime.now(timezone.utc).isoformat()
     state = {
@@ -101,25 +120,37 @@ async def import_csv(
 
 
 @app.post("/api/individual/import")
-async def import_individual_csv(
+async def import_individual_json(
     user_label: str = Form(...),
     tokens_file: UploadFile = File(...),
 ) -> dict:
     label = " ".join(user_label.split())
     if not label or len(label) > 200:
         raise HTTPException(status_code=400, detail="ユーザー名またはメールアドレスを200文字以内で指定してください")
+    suffix = Path(tokens_file.filename or "").suffix.lower()
+    if suffix not in {".json", ".csv"}:
+        raise HTTPException(status_code=400, detail="トークンJSON（.json）を選択してください")
     token_bytes = await tokens_file.read(MAX_UPLOAD_BYTES + 1)
     if len(token_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="CSVは5 MiB以下にしてください")
-    try:
-        parsed = parse_token_csv(token_bytes)
-    except CSVImportError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=413, detail="ファイルは5 MiB以下にしてください")
+    if suffix == ".csv":
+        try:
+            parsed = parse_token_csv(token_bytes)
+        except CSVImportError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        try:
+            parsed = parse_token_json(token_bytes)
+        except JSONImportError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     user_id = hashlib.sha256(label.casefold().encode()).hexdigest()[:20]
     rows = [{**row, "user_id": user_id, "user_label": label} for row in parsed]
     storage = create_storage(Settings.from_env())
     run_id = storage.create_run()
-    storage.save_raw_csv(run_id, "individual-tokens.csv", token_bytes)
+    if suffix == ".csv":
+        storage.save_raw_csv(run_id, "individual-tokens.csv", token_bytes)
+    else:
+        storage.save_raw_json(run_id, "individual-tokens.json", token_bytes)
     total_rows = storage.merge_individual_usage(rows)
     state = {
         "status": "success", "completed_at": datetime.now(timezone.utc).isoformat(),
