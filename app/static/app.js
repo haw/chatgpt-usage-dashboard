@@ -136,6 +136,7 @@ function showTab(tab) {
   window.scrollTo({top:0});
 }
 document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => showTab(button.dataset.tab)));
+document.querySelector('#kpi-triage').addEventListener('click', () => showTab('triage'));
 
 document.querySelector('#individual-upload-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -219,7 +220,6 @@ function render(data) {
   document.querySelector('#dau').textContent = formatOptional(data.kpis.latest_max_product_dau);
   document.querySelector('#total').textContent = formatOptional(data.kpis.total_tokens);
   document.querySelector('#average').textContent = formatOptional(data.kpis.daily_average_tokens);
-  document.querySelector('#alert-count').textContent = fmt.format(signalDates(data.alerts || []).size);
   document.querySelector('#period').textContent = selected.start_date ? `${selected.start_date} – ${selected.end_date}` : 'データなし';
   document.querySelector('#updated').textContent = state.completed_at ? `最終取込 ${new Date(state.completed_at).toLocaleString('ja-JP')}` : '未取込';
   renderLineChart('#dau-chart', data.daily, 'active_users');
@@ -537,6 +537,12 @@ function renderTriage(data) {
   const reset = document.querySelector('#checked-reset');
   reset.hidden = !status.checked_days;
   reset.textContent = status.checked_days ? `確認済み ${status.checked_days}日をすべて解除` : '';
+  const kpi = document.querySelector('#alert-count');
+  kpi.textContent = status.latest_date ? fmt.format((data.today || []).length) : '—';
+  document.querySelector('#alert-detail').textContent = status.latest_date
+    ? `${(data.week || []).length ? `今週 ${(data.week || []).length}日 · ` : ''}${status.stale ? '取込が止まっています · ' : ''}クリックで確認へ`
+    : 'データ取込後に判定';
+  document.querySelector('#kpi-triage').classList.toggle('all-clear', !!status.latest_date && !(data.today || []).length);
   renderTriageList('today', data.today || [], status.latest_date ? '今日確認する日はありません' : '');
   renderTriageList('week', data.week || [], '今週確認する日はありません');
   renderTriageList('reference', data.reference || [], '参考の日はありません');

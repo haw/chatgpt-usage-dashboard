@@ -145,3 +145,7 @@
 .detector { border:1px solid var(--line); border-radius:10px; padding:12px; font-size:.82rem }
 .detector p { margin:6px 0 }
 .workspace-import-action { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+.kpi-link { position:relative; text-align:left; font:inherit; color:inherit; cursor:pointer; border:1px solid #ecd6c4; transition:box-shadow .15s, transform .15s }
+.kpi-link:hover, .kpi-link:focus-visible { box-shadow:0 14px 34px #1c2c2322; transform:translateY(-1px) }
+.kpi-link .kpi-arrow { position:absolute; right:14px; bottom:14px; color:var(--muted); font-size:1.1rem }
+.kpi-link.all-clear strong { color:var(--green) }
