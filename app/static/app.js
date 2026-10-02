@@ -4,11 +4,10 @@ const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;',
 const products = ['chat', 'codex', 'work'];
 const colors = {chat:'#176b4d', codex:'#3478a4', work:'#d49a31'};
 let availablePeriod = {start_date:null, end_date:null};
-const signalFilters = {};
-const severityFilters = {high:true, medium:true, info:true};
 let detectorLabels = {};
-const serviceFilters = {overall:true, chat:true, codex:true, work:true};
 let currentAlerts = [];
+let currentDaily = [];
+let previousSignalState = null;  // {label, dates:Set} from the last render, for the "what changed" line
 let individualLoaded = false;
 let currentIndividualData = null;
 const DEFAULT_LIMITS = {fiveHour:26300000, weekly:173000000};
@@ -16,34 +15,29 @@ const LIMIT_SETTINGS_KEY = 'chatgpt-dashboard.limit-settings.v1';
 let limitSettings = loadLimitSettings();
 const DAY_OVERRIDES_KEY = 'chatgpt-dashboard.day-overrides.v1';
 const SENSITIVITY_KEY = 'chatgpt-dashboard.sensitivity.v1';
+// Five steps only: the analyst needs a feel for "more / less", not a number.
+const SENSITIVITY_STEPS = [
+  {value:0.5, label:'低'}, {value:0.7, label:'やや低'}, {value:1, label:'標準'}, {value:1.4, label:'やや高'}, {value:2, label:'高'},
+];
+const sensitivityIndex = value => SENSITIVITY_STEPS.reduce((best, step, index) =>
+  Math.abs(step.value - value) < Math.abs(SENSITIVITY_STEPS[best].value - value) ? index : best, 0);
+const sensitivityLabel = value => SENSITIVITY_STEPS[sensitivityIndex(value)].label;
 let sensitivity = loadSensitivity();
+let dayOverrides = loadDayOverrides();
+let currentPeriod = {start:null, end:null};
 
 function loadSensitivity() {
   try {
     const saved = Number(localStorage.getItem(SENSITIVITY_KEY));
-    if (saved >= 0.25 && saved <= 4) return saved;
+    if (saved >= 0.25 && saved <= 4) return SENSITIVITY_STEPS[sensitivityIndex(saved)].value;
   } catch (_) {}
   return 1;
 }
 
-// Slider position -4..4 maps to a 0.25x..4x multiplier so each step feels equal.
-const sliderToSensitivity = position => Math.round(Math.pow(2, position / 2) * 100) / 100;
-const sensitivityToSlider = value => Math.round(Math.log2(value) * 2);
-
-function describeSensitivity(value) {
-  if (value >= 2) return '高（小さな変化も表示）';
-  if (value > 1) return 'やや高';
-  if (value === 1) return '標準';
-  if (value > 0.5) return 'やや低';
-  return '低（大きな変化のみ）';
-}
-
 function renderSensitivity() {
-  document.querySelector('#sensitivity-slider').value = sensitivityToSlider(sensitivity);
-  document.querySelector('#sensitivity-value').textContent = `×${sensitivity} ${describeSensitivity(sensitivity)}`;
+  document.querySelector('#sensitivity-slider').value = sensitivityIndex(sensitivity);
+  document.querySelector('#sensitivity-value').textContent = sensitivityLabel(sensitivity);
 }
-let dayOverrides = loadDayOverrides();
-let currentPeriod = {start:null, end:null};
 
 function loadDayOverrides() {
   try {
@@ -183,7 +177,10 @@ document.querySelector('#settings-reset').addEventListener('click', () => {
 document.querySelector('#reset-range').addEventListener('click', () => load());
 let sensitivityTimer = null;
 document.querySelector('#sensitivity-slider').addEventListener('input', event => {
-  sensitivity = sliderToSensitivity(Number(event.target.value));
+  const next = SENSITIVITY_STEPS[Number(event.target.value)].value;
+  if (next === sensitivity) return;
+  previousSignalState = {label:sensitivityLabel(sensitivity), dates:signalDates(currentAlerts)};
+  sensitivity = next;
   renderSensitivity();
   try { localStorage.setItem(SENSITIVITY_KEY, String(sensitivity)); } catch (_) {}
   clearTimeout(sensitivityTimer);
@@ -191,33 +188,6 @@ document.querySelector('#sensitivity-slider').addEventListener('input', event =>
     load(currentPeriod.start, currentPeriod.end);
     if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
   }, 250);
-});
-document.querySelector('#sensitivity-reset').addEventListener('click', () => {
-  sensitivity = 1;
-  renderSensitivity();
-  try { localStorage.setItem(SENSITIVITY_KEY, '1'); } catch (_) {}
-  load(currentPeriod.start, currentPeriod.end);
-  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
-});
-document.querySelector('#daily-table').addEventListener('click', event => {
-  const button = event.target.closest('.day-kind-toggle');
-  if (button) toggleDayOverride(button.dataset.date, button.dataset.auto);
-});
-document.querySelector('#day-override-list').addEventListener('click', event => {
-  const button = event.target.closest('.day-override-remove');
-  if (!button) return;
-  delete dayOverrides[button.dataset.date];
-  persistDayOverrides();
-  renderDayOverrideList();
-  load(currentPeriod.start, currentPeriod.end);
-  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
-});
-document.querySelector('#day-override-clear').addEventListener('click', () => {
-  dayOverrides = {};
-  persistDayOverrides();
-  renderDayOverrideList();
-  load(currentPeriod.start, currentPeriod.end);
-  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
 });
 document.querySelector('#history-button').addEventListener('click', openHistory);
 document.querySelector('#history-close').addEventListener('click', () => document.querySelector('#history-dialog').close());
@@ -231,30 +201,6 @@ async function handleHashCopy(event) {
 }
 document.querySelector('#history-table').addEventListener('click', handleHashCopy);
 document.querySelector('#individual-history-table').addEventListener('click', handleHashCopy);
-document.querySelector('#signal-filters').addEventListener('click', event => {
-  const button = event.target.closest('.signal-toggle');
-  if (!button) return;
-  const signal = button.dataset.signal;
-  signalFilters[signal] = !signalFilters[signal];
-  button.classList.toggle('active', signalFilters[signal]);
-  button.setAttribute('aria-pressed', String(signalFilters[signal]));
-  renderAlerts(currentAlerts);
-});
-document.querySelectorAll('.severity-toggle').forEach(button => button.addEventListener('click', () => {
-  const severity = button.dataset.severity;
-  severityFilters[severity] = !severityFilters[severity];
-  button.classList.toggle('active', severityFilters[severity]);
-  button.setAttribute('aria-pressed', String(severityFilters[severity]));
-  renderAlerts(currentAlerts);
-}));
-document.querySelectorAll('.service-toggle').forEach(button => button.addEventListener('click', () => {
-  const service = button.dataset.service;
-  serviceFilters[service] = !serviceFilters[service];
-  button.classList.toggle('active', serviceFilters[service]);
-  button.setAttribute('aria-pressed', String(serviceFilters[service]));
-  renderAlerts(currentAlerts);
-}));
-
 function render(data) {
   const state = data.state || {};
   availablePeriod = data.available_period || availablePeriod;
@@ -265,29 +211,18 @@ function render(data) {
   document.querySelector('#dau').textContent = formatOptional(data.kpis.latest_max_product_dau);
   document.querySelector('#total').textContent = formatOptional(data.kpis.total_tokens);
   document.querySelector('#average').textContent = formatOptional(data.kpis.daily_average_tokens);
-  document.querySelector('#alert-count').textContent = fmt.format(data.kpis.alerts);
+  document.querySelector('#alert-count').textContent = fmt.format(signalDates(data.alerts || []).size);
   document.querySelector('#period').textContent = selected.start_date ? `${selected.start_date} – ${selected.end_date}` : 'データなし';
   document.querySelector('#updated').textContent = state.completed_at ? `最終取込 ${new Date(state.completed_at).toLocaleString('ja-JP')}` : '未取込';
   renderLineChart('#dau-chart', data.daily, 'active_users');
   renderLineChart('#token-chart', data.daily, 'tokens');
   renderAnalysisChart(data.analysis || [], '#analysis-chart', `${selected.start_date !== availablePeriod.start_date || selected.end_date !== availablePeriod.end_date ? '選択期間全体の中央値とMAD' : '全期間の直前最大7日（最低5日）'}から計算`);
-  renderSignalFilters(data.detectors || []);
+  detectorLabels = Object.fromEntries((data.detectors || []).map(d => [d.id, d.label]));
+  currentDaily = data.daily || [];
   renderDetectorErrors(data.detector_errors || []);
   document.querySelector('#pending-note').textContent = data.pending_days ? `判定保留 ${fmt.format(data.pending_days)}日（同じ区分の基準データが不足）` : '';
   renderAlerts(data.alerts);
   renderTable(data.daily, data.alerts);
-}
-
-function renderSignalFilters(detectors) {
-  const container = document.querySelector('#signal-filters');
-  detectorLabels = Object.fromEntries(detectors.map(d => [d.id, d.label]));
-  container.querySelectorAll('.signal-control').forEach(el => el.remove());
-  detectors.filter(d => d.scopes.includes('workspace')).forEach(d => {
-    if (!(d.id in signalFilters)) signalFilters[d.id] = true;
-    const active = signalFilters[d.id];
-    const params = Object.entries(d.params || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(', ');
-    container.insertAdjacentHTML('beforeend', `<span class="signal-control"><button type="button" class="signal-toggle${active ? ' active' : ''}" data-signal="${esc(d.id)}" aria-pressed="${active}">${esc(d.label)}</button><span class="help signal-help" tabindex="0" aria-label="${esc(d.label)}の判定条件">?<span class="help-content"><strong>${esc(d.label)}</strong><br>${esc(d.description)}${params ? `<br><small>設定: ${params}</small>` : ''}</span></span></span>`);
-  });
 }
 
 function renderDetectorErrors(errors) {
@@ -528,10 +463,27 @@ function renderIndividualHistory(rows){const table=document.querySelector('#indi
 function fileSize(bytes){if(bytes<1024)return `${fmt.format(bytes)} B`;return `${new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(bytes/1024)} KiB`}
 function historyFile(bytes,hash){if(bytes == null || !hash)return '—';const short=`${hash.slice(0,12)}…${hash.slice(-12)}`;return `<span class="file-size">${fileSize(bytes)}</span><button type="button" class="hash-copy" data-hash="${esc(hash)}" aria-label="SHA-256をコピー" title="${esc(hash)}"><code>${short}</code><span class="material-icons copy-icon" aria-hidden="true">content_copy</span><span class="copy-feedback" role="status">コピーしました</span></button>`}
 async function copyText(value){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);return}const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove()}
-function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=signalFilters[row.detector]!==false;const service=row.product||'overall';return signalVisible&&severityFilters[row.severity]!==false&&serviceFilters[service]!==false});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const severityLabels={high:'高',medium:'中',info:'参考'};el.className='alerts';el.innerHTML=visible.map(row=>`<article class="${esc(row.severity)}"><b><span class="severity ${esc(row.severity)}">${severityLabels[row.severity]||esc(row.severity)}</span>${esc(detectorLabels[row.detector]||row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}${row.baseline!=null?`（基準 ${fmt.format(row.baseline)}）`:row.threshold!=null?`（判定 ${fmt.format(row.threshold)}）`:''}</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
 function dayKindCell(row){const kind=row.day_kind||'workday';const source=row.day_kind_source||'weekday';const sourceLabels={weekend:'週末',weekday:'暦',inferred:'推定',override:'手動'};const auto=source==='override'?(kind==='holiday'?'workday':'holiday'):kind;return `<td><button type="button" class="day-kind-toggle day-kind ${esc(kind)} ${esc(source)}" data-date="${esc(row.date)}" data-auto="${esc(source==='override'?auto:kind)}" title="クリックで${kind==='holiday'?'平日':'休日'}に切替（このブラウザだけに保存）">${kind==='holiday'?'休日':'平日'}<small>${sourceLabels[source]||esc(source)}</small></button></td>`}
-function signalBadge(date,alerts){const rows=alerts.filter(a=>a.date===date);if(!rows.length)return '<td></td>';const rank={high:0,medium:1,info:2};const top=rows.reduce((best,row)=>rank[row.severity]<rank[best]?row.severity:best,'info');const detail=rows.map(a=>`${detectorLabels[a.detector]||a.type}${a.product?` (${a.product.toUpperCase()})`:''}`).join('\n');return `<td><span class="signal-badge severity ${esc(top)}" title="${esc(detail)}">${rows.length}件</span></td>`}
+// Dates with at least one non-info signal: the unit the analyst reasons about.
+function signalDates(alerts){return new Set(alerts.filter(a=>a.severity!=='info').map(a=>a.date))}
+function dateLabel(date){const d=new Date(`${date}T00:00:00Z`);return `${d.getUTCMonth()+1}/${d.getUTCDate()}（${['日','月','火','水','木','金','土'][d.getUTCDay()]}）`}
+function ratioText(value,baseline){if(baseline==null)return '';if(!baseline)return '（普段は利用なし）';const r=value/baseline;return `（普段 ${compact(baseline)} の ${r>=10?Math.round(r):r.toFixed(1)}倍）`}
+function productName(product){return product?product.toUpperCase():'全製品'}
+// One short sentence per signal: what, how much, compared with what.
+function signalSentence(a){switch(a.type){
+  case 'token_spike':case 'token_notable':return `${productName(a.product)}のトークン ${compact(a.value)}${ratioText(a.value,a.baseline)}`;
+  case 'tokens_per_user_spike':case 'tokens_per_user_notable':return `1人あたり${productName(a.product)} ${compact(a.value)}${ratioText(a.value,a.baseline)}`;
+  case 'dau_spike':case 'dau_spike_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人（普段 ${fmt.format(a.baseline)}人）`;
+  case 'dau_drop':case 'dau_drop_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人に減少（普段 ${fmt.format(a.baseline)}人）`;
+  case 'dau_new_max':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人、直近の最大 ${fmt.format(a.baseline)}人 を更新`;
+  case 'holiday_usage':return `休日なのに平日並みの利用 ${compact(a.value)}（平日の ${Math.round(a.value/a.baseline*100)}%）`;
+  case 'stale_data':return a.reason;
+  default:return `${detectorLabels[a.detector]||a.type}: ${a.reason}`}}
+function signalBadge(date,alerts){const rows=alerts.filter(a=>a.date===date);if(!rows.length)return '<td></td>';const rank={high:0,medium:1,info:2};const top=rows.reduce((best,row)=>rank[row.severity]<rank[best]?row.severity:best,'info');return `<td><span class="signal-badge severity ${esc(top)}" title="${esc(rows.map(signalSentence).join('\n'))}">${rows.length}</span></td>`}
+function renderSummary(alerts,rows){const el=document.querySelector('#signal-summary');if(!rows.length){el.textContent='';return}const latest=rows.at(-1).date;const cutoff=new Date(`${latest}T00:00:00Z`);cutoff.setUTCDate(cutoff.getUTCDate()-6);const recentStart=cutoff.toISOString().slice(0,10);const dates=signalDates(alerts);const recent=[...dates].filter(d=>d>=recentStart);const byDate=new Map();alerts.forEach(a=>{const g=byDate.get(a.date)||{high:0,medium:0,info:0};g[a.severity]++;byDate.set(a.date,g)});const top=[...byDate.entries()].filter(([d])=>dates.has(d)).sort((x,y)=>(y[1].high-x[1].high)||((y[1].high+y[1].medium)-(x[1].high+x[1].medium))||y[0].localeCompare(x[0]))[0];const parts=[];parts.push(recent.length?`直近7日で普段と違う日が <strong>${recent.length}日</strong>`:`直近7日に普段と違う日はありません`);if(dates.size>recent.length)parts.push(`選択期間全体では ${dates.size}日`);if(top){const g=top[1];parts.push(`最も目立つのは <strong>${dateLabel(top[0])}</strong>（${g.high+g.medium}つの観点${g.high?`・高 ${g.high}`:''}）`)}el.innerHTML=parts.join('。')+'。'}
+function renderDelta(alerts){const el=document.querySelector('#signal-delta');if(!previousSignalState){el.className='signal-delta hidden';return new Set()}const before=previousSignalState.dates;const after=signalDates(alerts);const added=[...after].filter(d=>!before.has(d)).sort();const removed=[...before].filter(d=>!after.has(d)).sort();const from=previousSignalState.label,to=sensitivityLabel(sensitivity);previousSignalState=null;if(from===to){el.className='signal-delta hidden';return new Set()}const listDates=dates=>dates.slice(0,5).map(dateLabel).join('、')+(dates.length>5?` ほか${dates.length-5}日`:'');const pieces=[];if(added.length)pieces.push(`<strong>+${added.length}日</strong>（新たに ${listDates(added)}）`);if(removed.length)pieces.push(`<strong>−${removed.length}日</strong>（${listDates(removed)} は出なくなりました）`);el.innerHTML=`${esc(from)} → ${esc(to)}: ${pieces.length?pieces.join('、'):'変化なし'}`;el.className='signal-delta';return new Set(added)}
+function renderAlerts(rows){currentAlerts=rows;renderSummary(rows,currentDaily);const appeared=renderDelta(rows);const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に普段と違う日はありません';return}const dayInfo=new Map(currentDaily.map(r=>[r.date,r]));const groups=new Map();rows.forEach(a=>{(groups.get(a.date)||groups.set(a.date,[]).get(a.date)).push(a)});const rank={high:0,medium:1,info:2};el.className='signal-groups';el.innerHTML=[...groups.entries()].sort((x,y)=>y[0].localeCompare(x[0])).map(([date,items])=>{items.sort((x,y)=>rank[x.severity]-rank[y.severity]);const strong=items.filter(a=>a.severity!=='info');const infoOnly=!strong.length;const day=dayInfo.get(date)||{};const kind=day.day_kind==='holiday'?`休日${day.day_kind_source==='inferred'?'（推定）':day.day_kind_source==='override'?'（手動）':''}`:'平日';const facts=[kind];if(day.active_users)facts.push(`DAU ${fmt.format(Math.max(...products.map(p=>day.active_users[p])))}`);if(day.tokens)facts.push(`${compact(day.tokens.total)} tokens`);const dots=items.map(a=>`<i class="dot ${esc(a.severity)}" title="${esc(detectorLabels[a.detector]||a.type)}"></i>`).join('');return `<details class="signal-group${infoOnly?' info-only':''}${appeared.has(date)?' appeared':''}"${infoOnly?'':' open'}><summary><span class="signal-date">${dateLabel(date)}</span><span class="signal-facts">${facts.map(esc).join(' · ')}</span><span class="signal-count">${infoOnly?'参考のみ':`${strong.length}つの観点`}${dots}</span></summary><ul>${items.map(a=>`<li class="sev-${esc(a.severity)}" title="${esc(detectorLabels[a.detector]||a.detector)}: ${esc(a.reason)}"><span class="severity ${esc(a.severity)}">${{high:'高',medium:'中',info:'参考'}[a.severity]}</span>${esc(signalSentence(a))}</li>`).join('')}</ul></details>`}).join('')}
 function renderTable(rows,alerts=[]){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="10" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${signalBadge(row.date,alerts)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}

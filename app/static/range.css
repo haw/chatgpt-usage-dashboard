@@ -76,8 +76,34 @@
 .day-override-list li { display:flex; align-items:center; gap:10px; font-size:.8rem }
 .day-override-list li span:first-child { flex:1 }
 .day-override-remove { padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:white; font-size:.72rem; cursor:pointer }
-.sensitivity-group input[type=range] { width:150px; accent-color:var(--green) }
-.sensitivity-value { font-size:.75rem; font-weight:700; color:var(--ink); min-width:9em }
 .signal-badge { cursor:help }
 .analysis-notable { fill:#e0a24a; stroke:white; stroke-width:1 }
 .analysis-legend .notable { width:9px; height:9px; border:1px solid white; border-radius:50%; background:#e0a24a; box-shadow:0 0 0 1px #e0a24a }
+
+/* SIGNALS panel: one control, grouped by day */
+.sensitivity-control { display:flex; align-items:center; gap:8px; white-space:nowrap }
+.sensitivity-control input[type=range] { width:170px; accent-color:#ad5c19 }
+.sensitivity-scale { font-size:.7rem; color:var(--muted) }
+.sensitivity-value { font-size:.85rem; color:#ad5c19; min-width:3.5em; text-align:right }
+.signal-summary { margin:0 0 10px; font-size:.95rem }
+.signal-summary strong { color:#ad5c19 }
+.signal-delta { margin:0 0 12px; padding:8px 12px; border-radius:8px; background:#fff4e6; border:1px solid #ecd6c4; font-size:.8rem }
+.signal-delta strong { color:#ad5c19 }
+.signal-groups { display:grid; gap:8px }
+.signal-group { border:1px solid #ecd6c4; background:#fff9f2; border-radius:10px; padding:0 12px }
+.signal-group.info-only { border-color:var(--line); background:#fbfaf7; opacity:.8 }
+.signal-group summary { display:flex; align-items:center; gap:14px; padding:10px 0; cursor:pointer; list-style:none; font-size:.82rem }
+.signal-group summary::-webkit-details-marker { display:none }
+.signal-date { font-weight:800; min-width:7em }
+.signal-facts { color:var(--muted); flex:1 }
+.signal-count { display:flex; align-items:center; gap:6px; font-weight:700; color:#ad5c19 }
+.signal-group.info-only .signal-count { color:var(--muted) }
+.dot { width:9px; height:9px; border-radius:50%; display:inline-block }
+.dot.high { background:var(--red) } .dot.medium { background:#d49a31 } .dot.info { background:#c8cdc9 }
+.signal-group ul { list-style:none; margin:0 0 10px; padding:0 0 0 2px; display:grid; gap:5px }
+.signal-group li { display:flex; align-items:center; gap:8px; font-size:.82rem }
+.signal-group li.sev-info { color:var(--muted) }
+@keyframes appeared { 0% { box-shadow:0 0 0 3px #e8b4ab; background:#ffe9e4 } 100% { box-shadow:none } }
+.signal-group.appeared { animation:appeared 3s ease-out }
+.signal-badge { cursor:help; min-width:1.6em; text-align:center }
+@media(max-width:900px){ .signal-heading { flex-direction:column; align-items:flex-start; gap:10px } .signal-group summary { flex-wrap:wrap } }
