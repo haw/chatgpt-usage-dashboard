@@ -133,12 +133,10 @@
 .triage-observations li.sev-info { color:var(--muted); font-size:.82rem }
 .triage-info { margin-top:8px; font-size:.8rem; color:var(--muted) }
 .triage-info summary { cursor:pointer }
-.disposition-current { margin:10px 0 0; font-size:.85rem; color:var(--green) }
-.disposition-form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; padding-top:10px; border-top:1px dashed var(--line) }
-.disposition-form input { flex:1; min-width:180px; padding:7px 9px; border:1px solid var(--line); border-radius:8px; font-size:.82rem }
-.disposition-form button { padding:7px 12px; border:1px solid var(--line); border-radius:999px; background:#f0eee8; font-size:.78rem; font-weight:700; cursor:pointer }
-.disposition-form button[data-kind=escalate] { border-color:#e8b4ab; color:var(--red) }
-.disposition-form .inspect-button { margin-left:auto; background:white }
+.triage-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px dashed var(--line) }
+.checked-mark { color:var(--green); font-size:.85rem; font-weight:700 }
+.triage-actions button { padding:7px 12px; border:1px solid var(--line); border-radius:999px; background:#f0eee8; font-size:.78rem; font-weight:700; cursor:pointer }
+.triage-actions .inspect-button { margin-left:auto; background:white }
 .triage-reference summary { display:flex; align-items:center; gap:14px; cursor:pointer; list-style:none }
 .triage-reference summary::-webkit-details-marker { display:none }
 .triage-reference summary h2 { margin:0; font-size:1.05rem }

@@ -506,7 +506,6 @@ function setIndividualMessage(text,kind){const el=document.querySelector('#indiv
 function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}
 // ---- 今日の確認 (triage) ----
 const TIER_LABELS = {today:'今日確認', week:'今週確認', reference:'参考'};
-const DISPOSITION_LABELS = {explained:'説明済み', tune:'判定の調整が必要', escalate:'エスカレーション'};
 
 async function loadTriage() {
   try {
@@ -556,13 +555,13 @@ function renderTriageEntry(entry) {
   const strong = entry.observations.filter(o => o.severity !== 'info');
   const info = entry.observations.filter(o => o.severity === 'info');
   const line = o => `<li class="sev-${esc(o.severity)}" title="${esc(detectorLabels[o.detector] || o.detector)}">${esc(signalSentence(o))}${o.threshold != null && o.detector !== 'dau_increase' ? `<small class="muted">判定ライン ${compact(o.threshold)}</small>` : ''}${o.streak > 1 ? `<small class="muted">${o.streak}日連続</small>` : ''}</li>`;
-  const disposition = entry.disposition ? `<p class="disposition-current">${esc(DISPOSITION_LABELS[entry.disposition.kind] || entry.disposition.kind)}${entry.disposition.note ? `: ${esc(entry.disposition.note)}` : ''} <small class="muted">（${new Date(entry.disposition.recorded_at).toLocaleDateString('ja-JP')} 記録）</small></p>` : '';
+  const checked = !!entry.disposition;
+  const checkedText = checked ? `<span class="checked-mark">確認済み <small class="muted">${new Date(entry.disposition.recorded_at).toLocaleDateString('ja-JP')}</small></span>` : '';
   return `<article class="triage-entry tier-${esc(entry.tier)}" data-date="${esc(entry.date)}">
     <header><span class="tier-badge ${esc(entry.tier)}">${TIER_LABELS[entry.tier]}</span><strong class="triage-date">${dateLabel(entry.date)}</strong><span class="triage-facts">${facts.map(esc).join(' · ')}</span><span class="triage-change">${esc(change)}</span><span class="triage-count">${strong.length ? `${entry.detectors}つの観点` : '参考のみ'}</span></header>
     <ul class="triage-observations">${strong.map(line).join('')}</ul>
     ${info.length ? `<details class="triage-info"><summary>参考 ${info.length}件</summary><ul class="triage-observations">${info.map(line).join('')}</ul></details>` : ''}
-    ${disposition}
-    <form class="disposition-form" data-date="${esc(entry.date)}"><input type="text" name="note" maxlength="500" placeholder="ひとこと（任意）"><button type="submit" data-kind="explained">説明済み</button><button type="submit" data-kind="tune">判定の調整が必要</button><button type="submit" data-kind="escalate">エスカレーション</button><button type="button" class="inspect-button" data-date="${esc(entry.date)}">推移で見る</button></form>
+    <div class="triage-actions">${checkedText}<button type="button" class="check-button" data-date="${esc(entry.date)}" data-kind="${checked ? 'cleared' : 'checked'}">${checked ? '未確認に戻す' : '確認済みにする'}</button><button type="button" class="inspect-button" data-date="${esc(entry.date)}">推移で見る</button></div>
   </article>`;
 }
 
@@ -577,29 +576,24 @@ document.querySelector('#triage-tab').addEventListener('click', event => {
     load(clamp(start.toISOString().slice(0, 10)), clamp(end.toISOString().slice(0, 10)));
     return;
   }
-  const submit = event.target.closest('button[type=submit][data-kind]');
-  if (submit) submit.form.dataset.kind = submit.dataset.kind;
+  const check = event.target.closest('.check-button');
+  if (check) markDay(check.dataset.date, check.dataset.kind, check);
 });
-document.querySelector('#triage-tab').addEventListener('submit', async event => {
-  const form = event.target.closest('.disposition-form');
-  if (!form) return;
-  event.preventDefault();
-  const kind = form.dataset.kind;
-  if (!kind) return;
-  const buttons = [...form.querySelectorAll('button')];
-  buttons.forEach(b => b.disabled = true);
+
+async function markDay(date, kind, button) {
+  button.disabled = true;
   try {
-    const response = await fetch('/api/dispositions', {method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({date:form.dataset.date, kind, note:form.querySelector('input[name=note]').value})});
+    const response = await fetch('/api/dispositions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({date, kind})});
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     await loadTriage();
   } catch (error) {
-    document.querySelector('#triage-errors').textContent = `記録に失敗しました: ${error.message}`;
-    document.querySelector('#triage-errors').className = 'message error';
-    buttons.forEach(b => b.disabled = false);
+    const el = document.querySelector('#triage-errors');
+    el.textContent = `記録に失敗しました: ${error.message}`;
+    el.className = 'message error';
+    button.disabled = false;
   }
-});
+}
 
 renderSensitivity();
 renderDayOverrideList();

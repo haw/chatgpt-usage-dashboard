@@ -34,17 +34,18 @@ def test_triage_ranks_the_multi_detector_day_first_and_separates_tiers():
     assert stale["status"]["stale"] is True and stale["status"]["age_days"] == 19
 
 
-def test_explained_days_drop_to_reference_and_latest_disposition_wins():
+def test_checked_days_drop_to_reference_and_clearing_restores_them():
     rows = load_fixture_rows()
     detectors = build_detector_set(CONFIG)
-    dispositions = [
-        {"date": "2026-10-01", "kind": "escalate", "note": "", "recorded_at": "2026-10-02T01:00:00+00:00"},
-        {"date": "2026-10-01", "kind": "explained", "note": "負荷試験", "recorded_at": "2026-10-02T02:00:00+00:00"},
-    ]
-    result = build_triage(rows, {}, detectors, dispositions, today="2026-10-02")
+    checked = [{"date": "2026-10-01", "kind": "checked", "recorded_at": "2026-10-02T01:00:00+00:00"}]
+    result = build_triage(rows, {}, detectors, checked, today="2026-10-02")
     entry = next(e for tier in ("today", "week", "reference") for e in result[tier] if e["date"] == "2026-10-01")
-    assert entry["tier"] == "reference" and entry["disposition"]["note"] == "負荷試験"
-    assert not result["today"] or result["today"][0]["date"] != "2026-10-01"
+    assert entry["tier"] == "reference" and entry["disposition"]["kind"] == "checked"
+    assert all(e["date"] != "2026-10-01" for e in result["today"])
+    cleared = checked + [{"date": "2026-10-01", "kind": "cleared", "recorded_at": "2026-10-02T02:00:00+00:00"}]
+    result = build_triage(rows, {}, detectors, cleared, today="2026-10-02")
+    entry = next(e for tier in ("today", "week", "reference") for e in result[tier] if e["date"] == "2026-10-01")
+    assert entry["tier"] == "today" and entry["disposition"] is None
 
 
 def test_observations_carry_novelty_and_streak():
@@ -63,12 +64,12 @@ def test_disposition_api_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     client = TestClient(app)
     assert client.post("/api/dispositions", json={"date": "2026-09-01", "kind": "bogus"}).status_code == 400
-    assert client.post("/api/dispositions", json={"date": "not-a-date", "kind": "explained"}).status_code == 400
-    response = client.post("/api/dispositions", json={"date": "2026-09-01", "kind": "explained", "note": "  全社  研修 "})
+    assert client.post("/api/dispositions", json={"date": "not-a-date", "kind": "checked"}).status_code == 400
+    response = client.post("/api/dispositions", json={"date": "2026-09-01", "kind": "checked"})
     assert response.status_code == 200
-    assert response.json()["disposition"]["note"] == "全社 研修"
+    assert response.json()["disposition"]["kind"] == "checked"
     stored = (tmp_path / "normalized" / "dispositions.jsonl").read_text().splitlines()
-    assert len(stored) == 1 and json.loads(stored[0])["kind"] == "explained"
+    assert len(stored) == 1 and json.loads(stored[0])["kind"] == "checked" and "note" not in json.loads(stored[0])
     triage = client.get("/api/triage")
     assert triage.status_code == 200
     assert triage.json()["status"]["latest_date"] is None

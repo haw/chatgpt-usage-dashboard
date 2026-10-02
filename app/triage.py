@@ -3,7 +3,7 @@
 Ranking is independent of the viewer's sensitivity (it always runs detectors at
 1.0) so the top of the list is stable. A day's rank comes from how many
 independent detectors reacted, whether the pattern is new, and the strongest
-severity; days the analysts already explained drop to the reference tier.
+severity; days the analyst already checked drop to the reference tier.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from app.detectors.calendar import classify_days
 TOP_K = 5
 NOVELTY_DAYS = 14   # a (detector, product) seen in this many prior days is "continuing", not new
 TIER_TODAY, TIER_WEEK, TIER_REFERENCE = "today", "week", "reference"
-DISPOSITION_KINDS = ("explained", "tune", "escalate")
+DISPOSITION_KINDS = ("checked", "cleared")  # a single "seen" mark that can be undone
 
 
 def build_triage(
@@ -37,6 +37,7 @@ def build_triage(
     operations = [s for s in signals if s["detector"] in _operations_ids(detectors)]
     observations = [s for s in signals if s["detector"] not in _operations_ids(detectors)]
     latest_disposition = {d["date"]: d for d in sorted(dispositions, key=lambda d: d["recorded_at"])}
+    latest_disposition = {day: d for day, d in latest_disposition.items() if d["kind"] == "checked"}
 
     by_date: dict[str, list[dict[str, Any]]] = {}
     for signal in observations:
@@ -49,7 +50,7 @@ def build_triage(
     entries.sort(key=lambda e: (-e["score"], e["date"]), reverse=False)
     entries.sort(key=lambda e: e["score"], reverse=True)
     for index, entry in enumerate(entries):
-        if entry["disposition"] and entry["disposition"]["kind"] in ("explained", "tune"):
+        if entry["disposition"] and entry["disposition"]["kind"] == "checked":
             entry["tier"] = TIER_REFERENCE
         elif entry["detectors"] == 0:
             entry["tier"] = TIER_REFERENCE

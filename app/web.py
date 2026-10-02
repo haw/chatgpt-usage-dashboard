@@ -86,7 +86,7 @@ def triage(
 
 @app.post("/api/dispositions")
 def record_disposition(payload: dict = Body(...)) -> dict:
-    """Record what the analysts decided about a day (shared by every viewer)."""
+    """Mark a day as checked (or clear the mark) so it leaves the triage list."""
     try:
         day = date.fromisoformat(str(payload.get("date", ""))).isoformat()
     except ValueError as exc:
@@ -94,10 +94,7 @@ def record_disposition(payload: dict = Body(...)) -> dict:
     kind = str(payload.get("kind", ""))
     if kind not in DISPOSITION_KINDS:
         raise HTTPException(status_code=400, detail=f"kind は {', '.join(DISPOSITION_KINDS)} のいずれかにしてください")
-    note = " ".join(str(payload.get("note", "")).split())
-    if len(note) > 500:
-        raise HTTPException(status_code=400, detail="メモは500文字以内にしてください")
-    disposition = {"date": day, "kind": kind, "note": note, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    disposition = {"date": day, "kind": kind, "recorded_at": datetime.now(timezone.utc).isoformat()}
     storage = create_storage(Settings.from_env())
     storage.append_disposition(disposition)
     return {"disposition": disposition}
