@@ -66,7 +66,13 @@ function toggleDayOverride(date, autoKind) {
   if (dayOverrides[date]) delete dayOverrides[date];
   else dayOverrides[date] = autoKind === 'holiday' ? 'workday' : 'holiday';
   persistDayOverrides();
+  renderDayOverrideList();
+  reloadAll();
+}
+
+function reloadAll() {
   load(currentPeriod.start, currentPeriod.end);
+  loadTriage();
   if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
 }
 
@@ -92,14 +98,14 @@ workspaceFiles.addEventListener('change', async () => {
   const files = Array.from(workspaceFiles.files || []);
   if (!files.length) return;
   if (files.length > 2) {
-    setMessage('一度に選べるJSONは2ファイルまでです。', 'error');
+    setImportMessage('一度に選べるJSONは2ファイルまでです。', 'error');
     workspaceFiles.value = '';
     return;
   }
   const button = workspaceImportButton;
   button.disabled = true;
   button.textContent = '取込中…';
-  setMessage('JSONの形式を検証しています。', '');
+  setImportMessage('JSONの形式を検証しています。', '');
   try {
     const body = withDayOverrides(new FormData());
     files.forEach(file => body.append('files', file));
@@ -107,9 +113,10 @@ workspaceFiles.addEventListener('change', async () => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     render(data);
-    setMessage(`${data.state.imported_days}日分を取り込みました。`, 'success');
+    loadTriage();
+    setImportMessage(`${data.state.imported_days}日分を取り込みました。「今日の確認」を更新しました。`, 'success');
   } catch (error) {
-    setMessage(error.message, 'error');
+    setImportMessage(error.message, 'error');
   } finally {
     button.disabled = false;
     button.textContent = 'アップロードして分析';
@@ -117,17 +124,18 @@ workspaceFiles.addEventListener('change', async () => {
   }
 });
 
-document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => {
-  const tab = button.dataset.tab;
+const TABS = ['triage', 'workspace', 'individual', 'settings'];
+function showTab(tab) {
   document.querySelectorAll('.tab-button').forEach(item => {
-    const active = item === button;
+    const active = item.dataset.tab === tab;
     item.classList.toggle('active', active);
     item.setAttribute('aria-selected', String(active));
   });
-  document.querySelector('#workspace-tab').hidden = tab !== 'workspace';
-  document.querySelector('#individual-tab').hidden = tab !== 'individual';
+  TABS.forEach(name => { document.querySelector(`#${name}-tab`).hidden = name !== tab; });
   if (tab === 'individual' && !individualLoaded) loadIndividual();
-}));
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => showTab(button.dataset.tab)));
 
 document.querySelector('#individual-upload-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -220,9 +228,16 @@ function render(data) {
   detectorLabels = Object.fromEntries((data.detectors || []).map(d => [d.id, d.label]));
   currentDaily = data.daily || [];
   renderDetectorErrors(data.detector_errors || []);
+  renderDetectorList(data.detectors || []);
+  renderDayOverrideList();
   document.querySelector('#pending-note').textContent = data.pending_days ? `判定保留 ${fmt.format(data.pending_days)}日（同じ区分の基準データが不足）` : '';
   renderAlerts(data.alerts);
   renderTable(data.daily, data.alerts);
+}
+
+function renderDetectorList(detectors) {
+  const el = document.querySelector('#detector-list');
+  el.innerHTML = detectors.map(d => `<article class="detector"><b>${esc(d.label)}</b><small class="muted">${esc(d.id)}${d.group === 'operations' ? '・取込状態として表示' : ''}</small><p>${esc(d.description)}</p><small class="muted">${Object.entries(d.params || {}).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(' · ')}</small></article>`).join('');
 }
 
 function renderDetectorErrors(errors) {
@@ -283,13 +298,12 @@ function fillLimitSettings() {
 function renderDayOverrideList() {
   const el = document.querySelector('#day-override-list');
   const dates = Object.keys(dayOverrides).sort();
-  if (!dates.length) { el.innerHTML = '<li class="muted">手動設定はありません。日次データ表の区分をクリックすると切り替えられます。</li>'; return; }
+  if (!dates.length) { el.innerHTML = '<li class="muted">手動設定はありません。</li>'; return; }
   el.innerHTML = dates.map(date => `<li><span>${esc(date)} ${weekday(date)}</span><span class="day-kind ${esc(dayOverrides[date])}">${dayOverrides[date] === 'holiday' ? '休日' : '平日'}</span><button type="button" class="day-override-remove" data-date="${esc(date)}">解除</button></li>`).join('');
 }
 
 function openLimitSettings() {
   fillLimitSettings();
-  renderDayOverrideList();
   setSettingsMessage('', 'hidden');
   document.querySelector('#settings-dialog').showModal();
 }
@@ -481,14 +495,113 @@ function signalSentence(a){switch(a.type){
   case 'stale_data':return a.reason;
   default:return `${detectorLabels[a.detector]||a.type}: ${a.reason}`}}
 function signalBadge(date,alerts){const rows=alerts.filter(a=>a.date===date);if(!rows.length)return '<td></td>';const rank={high:0,medium:1,info:2};const top=rows.reduce((best,row)=>rank[row.severity]<rank[best]?row.severity:best,'info');return `<td><span class="signal-badge severity ${esc(top)}" title="${esc(rows.map(signalSentence).join('\n'))}">${rows.length}</span></td>`}
-function renderSummary(alerts,rows){const el=document.querySelector('#signal-summary');if(!rows.length){el.textContent='';return}const latest=rows.at(-1).date;const cutoff=new Date(`${latest}T00:00:00Z`);cutoff.setUTCDate(cutoff.getUTCDate()-6);const recentStart=cutoff.toISOString().slice(0,10);const dates=signalDates(alerts);const recent=[...dates].filter(d=>d>=recentStart);const byDate=new Map();alerts.forEach(a=>{const g=byDate.get(a.date)||{high:0,medium:0,info:0};g[a.severity]++;byDate.set(a.date,g)});const top=[...byDate.entries()].filter(([d])=>dates.has(d)).sort((x,y)=>(y[1].high-x[1].high)||((y[1].high+y[1].medium)-(x[1].high+x[1].medium))||y[0].localeCompare(x[0]))[0];const parts=[];parts.push(recent.length?`直近7日で普段と違う日が <strong>${recent.length}日</strong>`:`直近7日に普段と違う日はありません`);if(dates.size>recent.length)parts.push(`選択期間全体では ${dates.size}日`);if(top){const g=top[1];parts.push(`最も目立つのは <strong>${dateLabel(top[0])}</strong>（${g.high+g.medium}つの観点${g.high?`・高 ${g.high}`:''}）`)}el.innerHTML=parts.join('。')+'。'}
 function renderDelta(alerts){const el=document.querySelector('#signal-delta');if(!previousSignalState){el.className='signal-delta hidden';return new Set()}const before=previousSignalState.dates;const after=signalDates(alerts);const added=[...after].filter(d=>!before.has(d)).sort();const removed=[...before].filter(d=>!after.has(d)).sort();const from=previousSignalState.label,to=sensitivityLabel(sensitivity);previousSignalState=null;if(from===to){el.className='signal-delta hidden';return new Set()}const listDates=dates=>dates.slice(0,5).map(dateLabel).join('、')+(dates.length>5?` ほか${dates.length-5}日`:'');const pieces=[];if(added.length)pieces.push(`<strong>+${added.length}日</strong>（新たに ${listDates(added)}）`);if(removed.length)pieces.push(`<strong>−${removed.length}日</strong>（${listDates(removed)} は出なくなりました）`);el.innerHTML=`${esc(from)} → ${esc(to)}: ${pieces.length?pieces.join('、'):'変化なし'}`;el.className='signal-delta';return new Set(added)}
-function renderAlerts(rows){currentAlerts=rows;renderSummary(rows,currentDaily);const appeared=renderDelta(rows);const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に普段と違う日はありません';return}const dayInfo=new Map(currentDaily.map(r=>[r.date,r]));const groups=new Map();rows.forEach(a=>{(groups.get(a.date)||groups.set(a.date,[]).get(a.date)).push(a)});const rank={high:0,medium:1,info:2};el.className='signal-groups';el.innerHTML=[...groups.entries()].sort((x,y)=>y[0].localeCompare(x[0])).map(([date,items])=>{items.sort((x,y)=>rank[x.severity]-rank[y.severity]);const strong=items.filter(a=>a.severity!=='info');const infoOnly=!strong.length;const day=dayInfo.get(date)||{};const kind=day.day_kind==='holiday'?`休日${day.day_kind_source==='inferred'?'（推定）':day.day_kind_source==='override'?'（手動）':''}`:'平日';const facts=[kind];if(day.active_users)facts.push(`DAU ${fmt.format(Math.max(...products.map(p=>day.active_users[p])))}`);if(day.tokens)facts.push(`${compact(day.tokens.total)} tokens`);const dots=items.map(a=>`<i class="dot ${esc(a.severity)}" title="${esc(detectorLabels[a.detector]||a.type)}"></i>`).join('');return `<details class="signal-group${infoOnly?' info-only':''}${appeared.has(date)?' appeared':''}"${infoOnly?'':' open'}><summary><span class="signal-date">${dateLabel(date)}</span><span class="signal-facts">${facts.map(esc).join(' · ')}</span><span class="signal-count">${infoOnly?'参考のみ':`${strong.length}つの観点`}${dots}</span></summary><ul>${items.map(a=>`<li class="sev-${esc(a.severity)}" title="${esc(detectorLabels[a.detector]||a.detector)}: ${esc(a.reason)}"><span class="severity ${esc(a.severity)}">${{high:'高',medium:'中',info:'参考'}[a.severity]}</span>${esc(signalSentence(a))}</li>`).join('')}</ul></details>`}).join('')}
+function renderAlerts(rows){currentAlerts=rows;renderDelta(rows)}
 function renderTable(rows,alerts=[]){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="10" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${signalBadge(row.date,alerts)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
+function setImportMessage(text,kind){const el=document.querySelector('#import-message');el.textContent=text;el.className=`message ${kind}`}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}
 function setIndividualMessage(text,kind){const el=document.querySelector('#individual-message');el.textContent=text;el.className=`message ${kind}`}
 function setSettingsMessage(text,kind){const el=document.querySelector('#settings-message');el.textContent=text;el.className=`message ${kind}`}
+// ---- 今日の確認 (triage) ----
+const TIER_LABELS = {today:'今日確認', week:'今週確認', reference:'参考'};
+const DISPOSITION_LABELS = {explained:'説明済み', tune:'判定の調整が必要', escalate:'エスカレーション'};
+
+async function loadTriage() {
+  try {
+    const query = withDayOverrides(new URLSearchParams());
+    query.delete('sensitivity');
+    const response = await fetch(`/api/triage${query.size ? `?${query}` : ''}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    renderTriage(data);
+  } catch (error) {
+    document.querySelector('#triage-status').textContent = `読み込みに失敗しました: ${error.message}`;
+  }
+}
+
+function renderTriage(data) {
+  const status = data.status || {};
+  const statusEl = document.querySelector('#triage-status');
+  if (!status.latest_date) {
+    statusEl.textContent = 'データがありません。「取込と設定」からJSONを取り込んでください。';
+  } else {
+    statusEl.innerHTML = `最終データ日 <strong>${dateLabel(status.latest_date)}</strong>（${status.age_days}日前）· 保存 ${fmt.format(status.stored_days)}日分 · 基準: ${esc(status.baseline)}${status.pending_days ? ` · 判定保留 ${status.pending_days}日` : ''}`;
+  }
+  const stale = document.querySelector('#triage-stale');
+  stale.textContent = status.stale ? `取込が止まっています: ${status.stale_reason}` : '';
+  stale.className = status.stale ? 'message error' : 'message hidden';
+  const errors = document.querySelector('#triage-errors');
+  errors.textContent = (data.detector_errors || []).length ? `判定の設定に問題があります: ${data.detector_errors.join(' / ')}` : '';
+  errors.className = (data.detector_errors || []).length ? 'message error' : 'message hidden';
+  renderTriageList('today', data.today || [], status.latest_date ? '今日確認する日はありません' : '');
+  renderTriageList('week', data.week || [], '今週確認する日はありません');
+  renderTriageList('reference', data.reference || [], '参考の日はありません');
+}
+
+function renderTriageList(tier, entries, emptyText) {
+  const el = document.querySelector(`#triage-${tier}`);
+  document.querySelector(`#triage-${tier}-count`).textContent = entries.length ? `${entries.length}日` : '';
+  if (!entries.length) { el.className = `triage-list empty${tier === 'today' ? ' all-clear' : ''}`; el.textContent = emptyText; return; }
+  el.className = 'triage-list';
+  el.innerHTML = entries.map(entry => renderTriageEntry(entry)).join('');
+}
+
+function renderTriageEntry(entry) {
+  const f = entry.facts || {};
+  const kind = f.kind === 'holiday' ? `休日${f.kind_source === 'inferred' ? '（推定）' : f.kind_source === 'override' ? '（手動）' : ''}` : '平日';
+  const facts = [kind, f.max_dau != null ? `DAU ${fmt.format(f.max_dau)}` : null, f.total_tokens != null ? `${compact(f.total_tokens)} tokens` : null].filter(Boolean);
+  const change = entry.continuing ? `継続${entry.streak}日目` : entry.novel ? '初めてのパターン' : (entry.streak > 1 ? `${entry.streak}日目` : 'この日から');
+  const strong = entry.observations.filter(o => o.severity !== 'info');
+  const info = entry.observations.filter(o => o.severity === 'info');
+  const line = o => `<li class="sev-${esc(o.severity)}" title="${esc(detectorLabels[o.detector] || o.detector)}">${esc(signalSentence(o))}${o.threshold != null && o.detector !== 'dau_increase' ? `<small class="muted">判定ライン ${compact(o.threshold)}</small>` : ''}${o.streak > 1 ? `<small class="muted">${o.streak}日連続</small>` : ''}</li>`;
+  const disposition = entry.disposition ? `<p class="disposition-current">${esc(DISPOSITION_LABELS[entry.disposition.kind] || entry.disposition.kind)}${entry.disposition.note ? `: ${esc(entry.disposition.note)}` : ''} <small class="muted">（${new Date(entry.disposition.recorded_at).toLocaleDateString('ja-JP')} 記録）</small></p>` : '';
+  return `<article class="triage-entry tier-${esc(entry.tier)}" data-date="${esc(entry.date)}">
+    <header><span class="tier-badge ${esc(entry.tier)}">${TIER_LABELS[entry.tier]}</span><strong class="triage-date">${dateLabel(entry.date)}</strong><span class="triage-facts">${facts.map(esc).join(' · ')}</span><span class="triage-change">${esc(change)}</span><span class="triage-count">${strong.length ? `${entry.detectors}つの観点` : '参考のみ'}</span></header>
+    <ul class="triage-observations">${strong.map(line).join('')}</ul>
+    ${info.length ? `<details class="triage-info"><summary>参考 ${info.length}件</summary><ul class="triage-observations">${info.map(line).join('')}</ul></details>` : ''}
+    ${disposition}
+    <form class="disposition-form" data-date="${esc(entry.date)}"><input type="text" name="note" maxlength="500" placeholder="ひとこと（任意）"><button type="submit" data-kind="explained">説明済み</button><button type="submit" data-kind="tune">判定の調整が必要</button><button type="submit" data-kind="escalate">エスカレーション</button><button type="button" class="inspect-button" data-date="${esc(entry.date)}">推移で見る</button></form>
+  </article>`;
+}
+
+document.querySelector('#triage-tab').addEventListener('click', event => {
+  const inspect = event.target.closest('.inspect-button');
+  if (inspect) {
+    const day = new Date(`${inspect.dataset.date}T00:00:00Z`);
+    const start = new Date(day); start.setUTCDate(start.getUTCDate() - 20);
+    const end = new Date(day); end.setUTCDate(end.getUTCDate() + 7);
+    const clamp = value => value > availablePeriod.end_date ? availablePeriod.end_date : value < availablePeriod.start_date ? availablePeriod.start_date : value;
+    showTab('workspace');
+    load(clamp(start.toISOString().slice(0, 10)), clamp(end.toISOString().slice(0, 10)));
+    return;
+  }
+  const submit = event.target.closest('button[type=submit][data-kind]');
+  if (submit) submit.form.dataset.kind = submit.dataset.kind;
+});
+document.querySelector('#triage-tab').addEventListener('submit', async event => {
+  const form = event.target.closest('.disposition-form');
+  if (!form) return;
+  event.preventDefault();
+  const kind = form.dataset.kind;
+  if (!kind) return;
+  const buttons = [...form.querySelectorAll('button')];
+  buttons.forEach(b => b.disabled = true);
+  try {
+    const response = await fetch('/api/dispositions', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({date:form.dataset.date, kind, note:form.querySelector('input[name=note]').value})});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    await loadTriage();
+  } catch (error) {
+    document.querySelector('#triage-errors').textContent = `記録に失敗しました: ${error.message}`;
+    document.querySelector('#triage-errors').className = 'message error';
+    buttons.forEach(b => b.disabled = false);
+  }
+});
+
 renderSensitivity();
+renderDayOverrideList();
 load();
+loadTriage();

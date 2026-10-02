@@ -112,11 +112,13 @@ def test_day_overrides_are_applied_from_query_and_form(tmp_path, monkeypatch):
     assert client.get("/api/individual?holidays=2026-09-01").status_code == 200
 
 
-def test_index_has_workspace_and_individual_tabs():
+def test_index_has_four_views():
     response = TestClient(app).get("/")
     assert response.status_code == 200
-    assert "全体分析" in response.text
-    assert "個人別分析" in response.text
+    for view in ("triage", "workspace", "individual", "settings"):
+        assert f'id="{view}-tab"' in response.text
+    assert "今日の確認" in response.text and "取込と設定" in response.text
+    assert 'id="triage-today"' in response.text and 'id="workspace-json-files"' in response.text
     assert 'id="settings-dialog"' in response.text
     assert 'id="individual-five-hour-hits"' in response.text
     assert 'id="individual-weekly-hits"' in response.text
