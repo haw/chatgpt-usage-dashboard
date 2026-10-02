@@ -125,7 +125,6 @@
 .tier-badge.reference { background:#e6ebe8; color:var(--muted) }
 .triage-date { font-size:1.05rem }
 .triage-facts { color:var(--muted); flex:1 }
-.triage-count { font-weight:700 }
 .triage-observations { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:6px }
 .triage-observations li { font-size:.88rem; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap }
 .triage-observations li.sev-high { font-weight:700 }
