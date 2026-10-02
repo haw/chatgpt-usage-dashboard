@@ -55,6 +55,8 @@ class Storage(Protocol):
     def load_individual_import_state(self) -> dict[str, Any]: ...
     def save_individual_import_metadata(self, run_id: str, metadata: dict[str, Any]) -> Any: ...
     def list_individual_import_history(self) -> list[dict[str, Any]]: ...
+    def load_dispositions(self) -> list[dict[str, Any]]: ...
+    def append_disposition(self, disposition: dict[str, Any]) -> None: ...
 
 
 class LocalStorage:
@@ -187,6 +189,18 @@ class LocalStorage:
         if not path.exists():
             return {"status": "never_imported"}
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def load_dispositions(self) -> list[dict[str, Any]]:
+        path = self.normalized_dir / "dispositions.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def append_disposition(self, disposition: dict[str, Any]) -> None:
+        # Append-only: the analysts' decisions are a record, the latest one per date wins when read.
+        path = self.normalized_dir / "dispositions.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(disposition, ensure_ascii=False, sort_keys=True) + "\n")
 
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int:
         merged = {row["date"]: row for row in self.load_workspace_usage()}
@@ -401,6 +415,12 @@ class S3Storage:
 
     def load_individual_usage(self) -> list[dict[str, Any]]:
         return self._load_jsonl("normalized/individual-usage.jsonl")
+
+    def load_dispositions(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("normalized/dispositions.jsonl")
+
+    def append_disposition(self, disposition: dict[str, Any]) -> None:
+        self._save_jsonl("normalized/dispositions.jsonl", [*self.load_dispositions(), disposition])
 
     def merge_individual_usage(self, incoming: list[dict[str, Any]]) -> int:
         merged = {(row["user_id"], row["date"]): row for row in self.load_individual_usage()}

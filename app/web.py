@@ -3,7 +3,7 @@ from pathlib import Path
 
 from datetime import date, datetime, timezone
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +13,7 @@ from app.detectors.calendar import parse_override_list
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
 from app.json_importer import JSONImportError, parse_token_json, parse_workspace_json
 from app.storage import create_storage
+from app.triage import DISPOSITION_KINDS, build_triage
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="ChatGPT Usage Dashboard", docs_url="/api/docs", redoc_url=None)
@@ -68,6 +69,38 @@ def dashboard(
         day_overrides=_day_overrides(holidays, workdays),
         sensitivity=_sensitivity(sensitivity),
     )
+
+
+@app.get("/api/triage")
+def triage(
+    holidays: str | None = Query(default=None),
+    workdays: str | None = Query(default=None),
+) -> dict:
+    """Ranked days worth looking at, independent of the viewer's sensitivity."""
+    storage = create_storage(Settings.from_env())
+    return build_triage(
+        storage.load_workspace_usage(), storage.load_import_state(), default_detectors(),
+        storage.load_dispositions(), day_overrides=_day_overrides(holidays, workdays),
+    )
+
+
+@app.post("/api/dispositions")
+def record_disposition(payload: dict = Body(...)) -> dict:
+    """Record what the analysts decided about a day (shared by every viewer)."""
+    try:
+        day = date.fromisoformat(str(payload.get("date", ""))).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日付の形式が不正です") from exc
+    kind = str(payload.get("kind", ""))
+    if kind not in DISPOSITION_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind は {', '.join(DISPOSITION_KINDS)} のいずれかにしてください")
+    note = " ".join(str(payload.get("note", "")).split())
+    if len(note) > 500:
+        raise HTTPException(status_code=400, detail="メモは500文字以内にしてください")
+    disposition = {"date": day, "kind": kind, "note": note, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    storage = create_storage(Settings.from_env())
+    storage.append_disposition(disposition)
+    return {"disposition": disposition}
 
 
 @app.get("/api/detectors")
