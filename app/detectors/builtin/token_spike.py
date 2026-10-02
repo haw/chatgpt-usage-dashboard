@@ -45,7 +45,10 @@ class TokenSpike(Detector):
                     [previous["tokens"][product] for previous in history], self.tuned("z", ctx))
             value = row["tokens"][product]
             score = robust_score(value, center, mad) if threshold is not None else None
-            above_floor = value >= self.tuned(MIN_TOKENS_KEY[product], ctx)
+            floor = self.tuned(MIN_TOKENS_KEY[product], ctx)
+            above_floor = value >= floor
+            if threshold is not None:
+                threshold = max(threshold, floor)  # the line the viewer sees is the effective one
             is_anomaly = threshold is not None and value > center and value >= threshold and above_floor
             is_notable = (not is_anomaly and above_floor and score is not None
                           and score >= self.tuned("info_z", ctx))

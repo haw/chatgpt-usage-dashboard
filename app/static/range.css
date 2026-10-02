@@ -149,3 +149,10 @@
 .kpi-link:hover, .kpi-link:focus-visible { box-shadow:0 14px 34px #1c2c2322; transform:translateY(-1px) }
 .kpi-link .kpi-arrow { position:absolute; right:14px; bottom:14px; color:var(--muted); font-size:1.1rem }
 .kpi-link.all-clear strong { color:var(--green) }
+.signal-delta p { margin:0 0 4px }
+.signal-delta .delta-title { font-weight:700 }
+.signal-delta ul { list-style:none; margin:0 0 8px; padding:0; display:grid; gap:3px }
+.signal-delta li { font-size:.8rem }
+.signal-delta li.removed { color:var(--muted) }
+.signal-delta li b { margin-right:6px }
+.sensitivity-control .help-content { white-space:normal; text-align:left }
