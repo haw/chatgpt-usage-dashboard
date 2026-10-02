@@ -38,6 +38,7 @@ def build_triage(
     observations = [s for s in signals if s["detector"] not in _operations_ids(detectors)]
     latest_disposition = {d["date"]: d for d in sorted(dispositions, key=lambda d: d["recorded_at"])}
     latest_disposition = {day: d for day, d in latest_disposition.items() if d["kind"] == "checked"}
+    checked_total = len(latest_disposition)
 
     by_date: dict[str, list[dict[str, Any]]] = {}
     for signal in observations:
@@ -78,12 +79,19 @@ def build_triage(
             "stored_days": len(ordered),
             "pending_days": sum(1 for point in analysis if point.get("threshold") is None),
             "baseline": "同じ区分（平日/休日）の直前28日",
+            "checked_days": checked_total,
         },
         "today": [e for e in entries if e["tier"] == TIER_TODAY],
         "week": [e for e in entries if e["tier"] == TIER_WEEK],
         "reference": [e for e in entries if e["tier"] == TIER_REFERENCE],
         "detector_errors": detectors.errors,
     }
+
+
+def checked_dates(dispositions: list[dict[str, Any]]) -> list[str]:
+    """Dates whose latest record is "checked"."""
+    latest = {d["date"]: d for d in sorted(dispositions, key=lambda d: d["recorded_at"])}
+    return sorted(day for day, d in latest.items() if d["kind"] == "checked")
 
 
 def _neg_date(day: str) -> int:

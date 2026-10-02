@@ -13,7 +13,7 @@ from app.detectors.calendar import parse_override_list
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
 from app.json_importer import JSONImportError, parse_token_json, parse_workspace_json
 from app.storage import create_storage
-from app.triage import DISPOSITION_KINDS, build_triage
+from app.triage import DISPOSITION_KINDS, build_triage, checked_dates
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="ChatGPT Usage Dashboard", docs_url="/api/docs", redoc_url=None)
@@ -98,6 +98,17 @@ def record_disposition(payload: dict = Body(...)) -> dict:
     storage = create_storage(Settings.from_env())
     storage.append_disposition(disposition)
     return {"disposition": disposition}
+
+
+@app.post("/api/dispositions/reset")
+def reset_dispositions() -> dict:
+    """Clear every checked mark (the log stays append-only: one "cleared" record per date)."""
+    storage = create_storage(Settings.from_env())
+    now = datetime.now(timezone.utc).isoformat()
+    days = checked_dates(storage.load_dispositions())
+    for day in days:
+        storage.append_disposition({"date": day, "kind": "cleared", "recorded_at": now})
+    return {"cleared": days}
 
 
 @app.get("/api/detectors")

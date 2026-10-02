@@ -534,6 +534,9 @@ function renderTriage(data) {
   const errors = document.querySelector('#triage-errors');
   errors.textContent = (data.detector_errors || []).length ? `判定の設定に問題があります: ${data.detector_errors.join(' / ')}` : '';
   errors.className = (data.detector_errors || []).length ? 'message error' : 'message hidden';
+  const reset = document.querySelector('#checked-reset');
+  reset.hidden = !status.checked_days;
+  reset.textContent = status.checked_days ? `確認済み ${status.checked_days}日をすべて解除` : '';
   renderTriageList('today', data.today || [], status.latest_date ? '今日確認する日はありません' : '');
   renderTriageList('week', data.week || [], '今週確認する日はありません');
   renderTriageList('reference', data.reference || [], '参考の日はありません');
@@ -578,6 +581,23 @@ document.querySelector('#triage-tab').addEventListener('click', event => {
   }
   const check = event.target.closest('.check-button');
   if (check) markDay(check.dataset.date, check.dataset.kind, check);
+});
+
+document.querySelector('#checked-reset').addEventListener('click', async event => {
+  event.preventDefault();  // the button sits inside the <details> summary
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/dispositions/reset', {method:'POST'});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await loadTriage();
+  } catch (error) {
+    const el = document.querySelector('#triage-errors');
+    el.textContent = `解除に失敗しました: ${error.message}`;
+    el.className = 'message error';
+  } finally {
+    button.disabled = false;
+  }
 });
 
 async function markDay(date, kind, button) {

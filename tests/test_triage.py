@@ -73,3 +73,16 @@ def test_disposition_api_round_trip(tmp_path, monkeypatch):
     triage = client.get("/api/triage")
     assert triage.status_code == 200
     assert triage.json()["status"]["latest_date"] is None
+
+
+def test_reset_clears_every_checked_mark(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    for day in ("2026-09-01", "2026-09-02"):
+        assert client.post("/api/dispositions", json={"date": day, "kind": "checked"}).status_code == 200
+    assert client.post("/api/dispositions", json={"date": "2026-09-02", "kind": "cleared"}).status_code == 200
+    assert client.get("/api/triage").json()["status"]["checked_days"] == 1
+    response = client.post("/api/dispositions/reset")
+    assert response.status_code == 200 and response.json()["cleared"] == ["2026-09-01"]
+    assert client.get("/api/triage").json()["status"]["checked_days"] == 0
+    assert client.post("/api/dispositions/reset").json()["cleared"] == []
