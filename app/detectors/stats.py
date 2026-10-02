@@ -30,20 +30,38 @@ def rolling_history(
     index: int,
     window_days: int,
     exclude: set[str] | None = None,
+    same_kind_as: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Rows strictly before ``rows[index]`` within ``window_days`` calendar days.
 
-    ``rows`` must be sorted by date. Dates listed in ``exclude`` (e.g. days
-    already flagged as anomalous) are left out so they do not inflate the baseline.
+    ``rows`` must be sorted by date. Dates in ``exclude`` (e.g. days already
+    flagged as anomalous) are left out so they do not inflate the baseline.
+    With ``same_kind_as`` (date -> kind) only days of the same kind as the
+    current one are kept, so holidays are compared with holidays.
     """
     current = date.fromisoformat(rows[index]["date"])
     cutoff = (current - timedelta(days=window_days)).isoformat()
+    kind = same_kind_as.get(rows[index]["date"], "workday") if same_kind_as is not None else None
     history = []
     for previous in reversed(rows[:index]):
         if previous["date"] < cutoff:
             break
         if exclude and previous["date"] in exclude:
             continue
+        if kind is not None and same_kind_as.get(previous["date"], "workday") != kind:
+            continue
         history.append(previous)
     history.reverse()
     return history
+
+
+def period_history(
+    rows: list[dict[str, Any]],
+    index: int,
+    same_kind_as: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Every row of the selected period with the same day kind (period-wide mode)."""
+    if same_kind_as is None:
+        return list(rows)
+    kind = same_kind_as.get(rows[index]["date"], "workday")
+    return [row for row in rows if same_kind_as.get(row["date"], "workday") == kind]

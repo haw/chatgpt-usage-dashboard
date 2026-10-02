@@ -17,11 +17,38 @@ def test_missing_metrics_are_not_zero_or_baseline_samples():
     assert result["analysis"][0]["value"] == 0
 
 
-def test_missing_days_do_not_extend_rolling_baseline_beyond_seven_days():
-    rows = [usage(day) for day in range(1, 8)] + [usage(20, chat_tokens=1000)]
+def test_missing_days_do_not_extend_rolling_baseline_beyond_window():
+    # 2026-09-30 is a Wednesday; only 4 workdays (9/2-9/4, 9/7) fall inside its 28-day window
+    rows = [usage(day) for day in range(1, 8)] + [usage(30, chat_tokens=1000)]
     result = build_workspace_dashboard(rows, {})
     assert result["analysis"][-1]["baseline"] is None
-    assert not [alert for alert in result["alerts"] if alert["date"] == "2026-09-20"]
+    assert result["pending_days"] >= 1
+    assert not [alert for alert in result["alerts"] if alert["date"] == "2026-09-30"]
+
+
+def test_rows_carry_day_kind_and_overrides_apply():
+    rows = [usage(day) for day in range(1, 8)]
+    result = build_workspace_dashboard(rows, {})
+    kinds = {row["date"]: (row["day_kind"], row["day_kind_source"]) for row in result["daily"]}
+    assert kinds["2026-09-05"] == ("holiday", "weekend")
+    assert kinds["2026-09-01"] == ("workday", "weekday")
+    result = build_workspace_dashboard(rows, {}, day_overrides={"2026-09-01": "holiday"})
+    assert [row for row in result["daily"] if row["date"] == "2026-09-01"][0]["day_kind_source"] == "override"
+
+
+def test_holiday_baseline_uses_only_holidays():
+    # Weekends get 100 chat tokens, workdays 1000; a 1000-token Sunday must stand out against other weekends
+    rows = []
+    for day in range(1, 29):
+        weekend = (day + 1) % 7 in (0, 6)  # 2026-09-05 (day 5) is Saturday
+        rows.append(usage(day, chat_tokens=100 if weekend else 1000, chat_dau=1 if weekend else 5))
+    rows[-1]["tokens"] = {"chat": 1000, "codex": 20, "work": 10, "total": 1030}  # 2026-09-28 is a Monday
+    rows.append(usage(27, chat_tokens=1000, chat_dau=5))  # a second Sunday 9/27 at workday level
+    rows = sorted({row["date"]: row for row in rows}.values(), key=lambda row: row["date"])
+    result = build_workspace_dashboard(rows, {})
+    spikes = {(a["date"], a["product"]) for a in result["alerts"] if a["type"] == "token_spike"}
+    assert ("2026-09-27", "chat") in spikes
+    assert ("2026-09-28", "chat") not in spikes
 
 
 def usage(day: int, chat_tokens: int = 100, chat_dau: int = 5) -> dict:

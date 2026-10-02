@@ -13,19 +13,27 @@
 id = "token_spike"
 enabled = true
 [detectors.params]
-z = 3.5
-window_days = 7
-min_history = 5
-high_z = 7.0
+z = 3.5                  # ロバストZスコアの判定値
+high_z = 7.0             # これ以上は重要度「高」
+window_days = 28         # 基準に使う直前の日数（暦日）
+min_history = 5          # 基準に必要な同じ区分の日数。足りない日は判定保留
+same_kind_only = true    # 平日は平日、休日は休日と比較する
+exclude_anomalies = true # 異常と判定した日を以後の基準から外す
+min_tokens_total = 0     # これ未満の値は急増と判定しない（製品別も同様）
+min_tokens_chat = 0
+min_tokens_codex = 0
+min_tokens_work = 1000000
 
 [[detectors]]
 id = "dau_change"
 enabled = true
 [detectors.params]
 z = 3.5
-window_days = 7
+window_days = 28
 min_history = 5
-min_change = 2
+min_change = 2           # 中央値との差がこれ未満なら無視（人数）。+1人の検知は dau_increase が担当
+same_kind_only = true
+exclude_anomalies = true
 
 # 独自検知器の例（plugins/example_rule.py を参照）
 # [[detectors]]

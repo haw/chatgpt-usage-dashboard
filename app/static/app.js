@@ -14,10 +14,44 @@ let currentIndividualData = null;
 const DEFAULT_LIMITS = {fiveHour:26300000, weekly:173000000};
 const LIMIT_SETTINGS_KEY = 'chatgpt-dashboard.limit-settings.v1';
 let limitSettings = loadLimitSettings();
+const DAY_OVERRIDES_KEY = 'chatgpt-dashboard.day-overrides.v1';
+let dayOverrides = loadDayOverrides();
+let currentPeriod = {start:null, end:null};
+
+function loadDayOverrides() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DAY_OVERRIDES_KEY));
+    if (saved && typeof saved === 'object') return Object.fromEntries(Object.entries(saved).filter(([date, kind]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && ['holiday', 'workday'].includes(kind)));
+  } catch (_) {}
+  return {};
+}
+
+function persistDayOverrides() {
+  try { localStorage.setItem(DAY_OVERRIDES_KEY, JSON.stringify(dayOverrides)); return true; }
+  catch (_) { setMessage('休日・平日の設定をブラウザへ保存できませんでした。', 'error'); return false; }
+}
+
+// Viewer-specific holiday/workday overrides travel with every request as query or form fields.
+function withDayOverrides(target) {
+  const holidays = Object.keys(dayOverrides).filter(date => dayOverrides[date] === 'holiday').sort().join(',');
+  const workdays = Object.keys(dayOverrides).filter(date => dayOverrides[date] === 'workday').sort().join(',');
+  if (holidays) target.set('holidays', holidays);
+  if (workdays) target.set('workdays', workdays);
+  return target;
+}
+
+function toggleDayOverride(date, autoKind) {
+  if (dayOverrides[date]) delete dayOverrides[date];
+  else dayOverrides[date] = autoKind === 'holiday' ? 'workday' : 'holiday';
+  persistDayOverrides();
+  load(currentPeriod.start, currentPeriod.end);
+  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
+}
 
 async function load(start, end) {
   try {
-    const query = new URLSearchParams();
+    currentPeriod = {start:start || null, end:end || null};
+    const query = withDayOverrides(new URLSearchParams());
     if (start) query.set('start_date', start);
     if (end) query.set('end_date', end);
     const response = await fetch(`/api/dashboard${query.size ? `?${query}` : ''}`);
@@ -45,7 +79,7 @@ workspaceFiles.addEventListener('change', async () => {
   button.textContent = '取込中…';
   setMessage('JSONの形式を検証しています。', '');
   try {
-    const body = new FormData();
+    const body = withDayOverrides(new FormData());
     files.forEach(file => body.append('files', file));
     const response = await fetch('/api/import', {method:'POST', body});
     const data = await response.json();
@@ -80,7 +114,7 @@ document.querySelector('#individual-upload-form').addEventListener('submit', asy
   button.textContent = '取込中…';
   setIndividualMessage('JSONの形式を検証しています。', '');
   try {
-    const response = await fetch('/api/individual/import', {method:'POST', body:new FormData(event.currentTarget)});
+    const response = await fetch('/api/individual/import', {method:'POST', body:withDayOverrides(new FormData(event.currentTarget))});
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     individualLoaded = true;
@@ -119,6 +153,26 @@ document.querySelector('#settings-reset').addEventListener('click', () => {
 });
 
 document.querySelector('#reset-range').addEventListener('click', () => load());
+document.querySelector('#daily-table').addEventListener('click', event => {
+  const button = event.target.closest('.day-kind-toggle');
+  if (button) toggleDayOverride(button.dataset.date, button.dataset.auto);
+});
+document.querySelector('#day-override-list').addEventListener('click', event => {
+  const button = event.target.closest('.day-override-remove');
+  if (!button) return;
+  delete dayOverrides[button.dataset.date];
+  persistDayOverrides();
+  renderDayOverrideList();
+  load(currentPeriod.start, currentPeriod.end);
+  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
+});
+document.querySelector('#day-override-clear').addEventListener('click', () => {
+  dayOverrides = {};
+  persistDayOverrides();
+  renderDayOverrideList();
+  load(currentPeriod.start, currentPeriod.end);
+  if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
+});
 document.querySelector('#history-button').addEventListener('click', openHistory);
 document.querySelector('#history-close').addEventListener('click', () => document.querySelector('#history-dialog').close());
 async function handleHashCopy(event) {
@@ -173,6 +227,7 @@ function render(data) {
   renderAnalysisChart(data.analysis || [], '#analysis-chart', `${selected.start_date !== availablePeriod.start_date || selected.end_date !== availablePeriod.end_date ? '選択期間全体の中央値とMAD' : '全期間の直前最大7日（最低5日）'}から計算`);
   renderSignalFilters(data.detectors || []);
   renderDetectorErrors(data.detector_errors || []);
+  document.querySelector('#pending-note').textContent = data.pending_days ? `判定保留 ${fmt.format(data.pending_days)}日（同じ区分の基準データが不足）` : '';
   renderAlerts(data.alerts);
   renderTable(data.daily);
 }
@@ -197,8 +252,9 @@ function renderDetectorErrors(errors) {
 
 async function loadIndividual(userId) {
   try {
-    const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
-    const response = await fetch(`/api/individual${query}`);
+    const query = withDayOverrides(new URLSearchParams());
+    if (userId) query.set('user_id', userId);
+    const response = await fetch(`/api/individual${query.size ? `?${query}` : ''}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     individualLoaded = true;
@@ -243,8 +299,16 @@ function fillLimitSettings() {
   document.querySelector('#weekly-limit').value = limitSettings.weekly;
 }
 
+function renderDayOverrideList() {
+  const el = document.querySelector('#day-override-list');
+  const dates = Object.keys(dayOverrides).sort();
+  if (!dates.length) { el.innerHTML = '<li class="muted">手動設定はありません。日次データ表の区分をクリックすると切り替えられます。</li>'; return; }
+  el.innerHTML = dates.map(date => `<li><span>${esc(date)} ${weekday(date)}</span><span class="day-kind ${esc(dayOverrides[date])}">${dayOverrides[date] === 'holiday' ? '休日' : '平日'}</span><button type="button" class="day-override-remove" data-date="${esc(date)}">解除</button></li>`).join('');
+}
+
 function openLimitSettings() {
   fillLimitSettings();
+  renderDayOverrideList();
   setSettingsMessage('', 'hidden');
   document.querySelector('#settings-dialog').showModal();
 }
@@ -342,9 +406,9 @@ function renderAnalysisChart(rows, selector = '#analysis-chart', hint = null) {
     if (current.length) segments.push(current);
     return segments.map(segment => `<polyline points="${segment.join(' ')}" class="${css}" fill="none" vector-effect="non-scaling-stroke"/>`).join('');
   };
-  const actualDots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row.value)}" r="${row.is_anomaly?6:3}" class="${row.is_anomaly?'analysis-anomaly':'analysis-dot'}"><title>${row.date} 実測: ${fmt.format(row.value)}${row.baseline === null?'（基準期間不足）':` / 中央値: ${fmt.format(row.baseline)} / 判定ライン: ${fmt.format(row.threshold)}`}</title></circle>`).join('');
+  const actualDots = rows.map((row,index) => `<circle cx="${x(index)}" cy="${y(row.value)}" r="${row.is_anomaly?6:3}" class="${row.is_anomaly?'analysis-anomaly':'analysis-dot'}"><title>${row.date}${row.kind==='holiday'?'（休日）':''} 実測: ${fmt.format(row.value)}${row.baseline === null?'（判定保留: 同じ区分の基準不足）':` / 中央値: ${fmt.format(row.baseline)} / 判定ライン: ${fmt.format(row.threshold)}`}</title></circle>`).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length/10));
-  const labels = rows.map((row,index) => index%labelStep===0 || index===rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
+  const labels = rows.map((row,index) => index%labelStep===0 || index===rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label${row.kind==='holiday'?' holiday':''}" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
   const narrowed = selector === '#analysis-chart' && availablePeriod.start_date && rows.length && (rows[0].date !== availablePeriod.start_date || rows.at(-1).date !== availablePeriod.end_date);
   const description = hint || `${narrowed?'選択期間全体の中央値とMAD':'全期間の直前最大7日（最低5日）'}から計算`;
   el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="総トークン異常分析グラフ">${grid}${path('threshold','analysis-threshold-line')}${path('baseline','analysis-baseline-line')}${path('value','analysis-actual-line')}${actualDots}${labels}</svg><small class="drag-hint">${description}</small>`;
@@ -374,7 +438,7 @@ function renderLineChart(selector, rows, key, rangeEnabled = true) {
     return `<path d="${path}" fill="none" stroke="${colors[product]}" stroke-width="3" vector-effect="non-scaling-stroke"/>${dots}`;
   }).join('');
   const labelStep = Math.max(1, Math.ceil(rows.length / 10));
-  const labels = rows.map((row,index) => index % labelStep === 0 || index === rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
+  const labels = rows.map((row,index) => index % labelStep === 0 || index === rows.length-1 ? `<text x="${x(index)}" y="${height-14}" class="axis-label${row.day_kind==='holiday'?' holiday':''}" text-anchor="middle">${row.date.slice(5)}</text>` : '').join('');
   const rangeLayer = rangeEnabled ? `<rect class="drag-selection" x="0" y="${top}" width="0" height="${plotHeight}"/><rect class="drag-surface" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="transparent"/>` : '';
   el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="製品別の折れ線グラフ">${grid}${series}${labels}${rangeLayer}</svg>${rangeEnabled?'<small class="drag-hint">グラフ上を横にドラッグして分析期間を選択</small>':''}`;
   if (rangeEnabled) enableRangeDrag(el.querySelector('svg'), rows, left, plotWidth);
@@ -420,7 +484,8 @@ function historyFile(bytes,hash){if(bytes == null || !hash)return '—';const sh
 async function copyText(value){if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value);return}const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove()}
 function renderAlerts(rows){currentAlerts=rows;const el=document.querySelector('#alerts');if(!rows.length){el.className='empty';el.textContent='選択期間に異常兆候はありません';return}const visible=rows.filter(row=>{const signalVisible=signalFilters[row.detector]!==false;const service=row.product||'overall';return signalVisible&&severityFilters[row.severity]!==false&&serviceFilters[service]!==false});if(!visible.length){el.className='empty';el.textContent='選択中の条件に表示する異常兆候はありません';return}const severityLabels={high:'高',medium:'中',info:'参考'};el.className='alerts';el.innerHTML=visible.map(row=>`<article class="${esc(row.severity)}"><b><span class="severity ${esc(row.severity)}">${severityLabels[row.severity]||esc(row.severity)}</span>${esc(detectorLabels[row.detector]||row.type)}</b><strong>${esc(row.product?.toUpperCase()||'全製品')}</strong><span>${esc(row.date)}</span><span>${fmt.format(row.value)}${row.baseline!=null?`（基準 ${fmt.format(row.baseline)}）`:row.threshold!=null?`（判定 ${fmt.format(row.threshold)}）`:''}</span><small>${esc(row.reason)}</small></article>`).join('')}
 function weekday(date){const day=new Date(`${date}T00:00:00Z`).getUTCDay();const labels=['日','月','火','水','木','金','土'];const kind=day===0?'sun':day===6?'sat':'';return `<span class="weekday ${kind}">(${labels[day]})</span>`}
-function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
+function dayKindCell(row){const kind=row.day_kind||'workday';const source=row.day_kind_source||'weekday';const sourceLabels={weekend:'週末',weekday:'暦',inferred:'推定',override:'手動'};const auto=source==='override'?(kind==='holiday'?'workday':'holiday'):kind;return `<td><button type="button" class="day-kind-toggle day-kind ${esc(kind)} ${esc(source)}" data-date="${esc(row.date)}" data-auto="${esc(source==='override'?auto:kind)}" title="クリックで${kind==='holiday'?'平日':'休日'}に切替（このブラウザだけに保存）">${kind==='holiday'?'休日':'平日'}<small>${sourceLabels[source]||esc(source)}</small></button></td>`}
+function renderTable(rows){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="9" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
 function setMessage(text,kind){const el=document.querySelector('#message');el.textContent=text;el.className=`message ${kind}`}

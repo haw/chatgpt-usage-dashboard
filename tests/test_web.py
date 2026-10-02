@@ -97,6 +97,21 @@ def test_dashboard_signals_carry_detector_and_severity(tmp_path, monkeypatch):
     assert [d["id"] for d in data["detectors"]] == [d["id"] for d in client.get("/api/detectors").json()["detectors"]]
 
 
+def test_day_overrides_are_applied_from_query_and_form(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    days = [f"2026-09-{day:02d}" for day in range(1, 8)]  # 9/5-9/6 are a weekend
+    files = [("files", ("tokens.json", analytics_json("tokens", days), "application/json"))]
+    data = client.post("/api/import", files=files, data={"holidays": "2026-09-01"}).json()
+    kinds = {row["date"]: row["day_kind_source"] for row in data["daily"]}
+    assert kinds["2026-09-01"] == "override" and kinds["2026-09-05"] == "weekend"
+    data = client.get("/api/dashboard?workdays=2026-09-05").json()
+    kinds = {row["date"]: (row["day_kind"], row["day_kind_source"]) for row in data["daily"]}
+    assert kinds["2026-09-05"] == ("workday", "override") and kinds["2026-09-01"] == ("workday", "weekday")
+    assert client.get("/api/dashboard?holidays=not-a-date").status_code == 400
+    assert client.get("/api/individual?holidays=2026-09-01").status_code == 200
+
+
 def test_index_has_workspace_and_individual_tabs():
     response = TestClient(app).get("/")
     assert response.status_code == 200

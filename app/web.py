@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.analytics import build_individual_dashboard, build_workspace_dashboard, default_detectors
 from app.config import Settings
+from app.detectors.calendar import parse_override_list
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
 from app.json_importer import JSONImportError, parse_token_json, parse_workspace_json
 from app.storage import create_storage
@@ -28,10 +29,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _day_overrides(holidays: str | None, workdays: str | None) -> dict[str, str]:
+    """Viewer-specific holiday/workday overrides, sent from the browser's localStorage."""
+    try:
+        return parse_override_list(holidays, workdays)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/dashboard")
 def dashboard(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
+    holidays: str | None = Query(default=None),
+    workdays: str | None = Query(default=None),
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="開始日は終了日以前にしてください")
@@ -42,6 +53,7 @@ def dashboard(
         storage.load_import_state(),
         start_date.isoformat() if start_date else None,
         end_date.isoformat() if end_date else None,
+        day_overrides=_day_overrides(holidays, workdays),
     )
 
 
@@ -59,10 +71,15 @@ def import_history() -> dict:
 
 
 @app.get("/api/individual")
-def individual_dashboard(user_id: str | None = Query(default=None)) -> dict:
+def individual_dashboard(
+    user_id: str | None = Query(default=None),
+    holidays: str | None = Query(default=None),
+    workdays: str | None = Query(default=None),
+) -> dict:
     storage = create_storage(Settings.from_env())
     return build_individual_dashboard(
-        storage.load_individual_usage(), storage.load_individual_import_state(), user_id
+        storage.load_individual_usage(), storage.load_individual_import_state(), user_id,
+        day_overrides=_day_overrides(holidays, workdays),
     )
 
 
@@ -80,7 +97,10 @@ async def import_json(
     files: list[UploadFile] | None = File(default=None),
     active_users_file: UploadFile | None = File(default=None),
     tokens_file: UploadFile | None = File(default=None),
+    holidays: str | None = Form(default=None),
+    workdays: str | None = Form(default=None),
 ) -> dict:
+    overrides = _day_overrides(holidays, workdays)
     payloads: dict[str, bytes] = {}
     upload_format = "json"
     if files is None:
@@ -144,14 +164,17 @@ async def import_json(
         "run_id": run_id,
     }
     storage.save_import_state(state)
-    return build_workspace_dashboard(storage.load_workspace_usage(), state)
+    return build_workspace_dashboard(storage.load_workspace_usage(), state, day_overrides=overrides)
 
 
 @app.post("/api/individual/import")
 async def import_individual_json(
     user_label: str = Form(...),
     tokens_file: UploadFile = File(...),
+    holidays: str | None = Form(default=None),
+    workdays: str | None = Form(default=None),
 ) -> dict:
+    overrides = _day_overrides(holidays, workdays)
     label = " ".join(user_label.split())
     if not label or len(label) > 200:
         raise HTTPException(status_code=400, detail="ユーザー名またはメールアドレスを200文字以内で指定してください")
@@ -188,4 +211,4 @@ async def import_individual_json(
     }
     storage.save_individual_import_metadata(run_id, state)
     storage.save_individual_import_state(state)
-    return build_individual_dashboard(storage.load_individual_usage(), state, user_id)
+    return build_individual_dashboard(storage.load_individual_usage(), state, user_id, day_overrides=overrides)
