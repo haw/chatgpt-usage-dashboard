@@ -593,6 +593,7 @@ function renderTriageEntry(entry) {
   const kind = f.kind === 'holiday' ? `休日${f.kind_source === 'inferred' ? '（推定）' : f.kind_source === 'override' ? '（手動）' : ''}` : '平日';
   const facts = [kind, f.max_dau != null ? `DAU ${fmt.format(f.max_dau)}` : null, f.total_tokens != null ? `${compact(f.total_tokens)} tokens` : null].filter(Boolean);
   const strong = entry.observations.filter(o => o.severity !== 'info');
+  const info = entry.observations.filter(o => o.severity === 'info');
   // Onset / continuation only makes sense when something actually crossed a line. Short label, field name, hover explanation.
   let change = '';
   if (strong.length) {
