@@ -483,14 +483,16 @@ function dayKindCell(row){const kind=row.day_kind||'workday';const source=row.da
 function signalDates(alerts){return new Set(alerts.filter(a=>a.severity!=='info').map(a=>a.date))}
 function dateLabel(date){const d=new Date(`${date}T00:00:00Z`);return `${d.getUTCMonth()+1}/${d.getUTCDate()}（${['日','月','火','水','木','金','土'][d.getUTCDay()]}）`}
 function kindOf(date){return (currentDaily.find(r=>r.date===date)||{}).day_kind||'workday'}
-function ratioText(value,baseline,kind){if(baseline==null)return '';if(!baseline)return kind==='holiday'?'（休日なのに利用）':'（普段は利用なし）';const r=value/baseline;return `（普段 ${compact(baseline)} の ${r>=10?Math.round(r):r.toFixed(1)}倍）`}
+// Ratio to the median for intuition, plus the value the judgement actually uses (SD multiples) when it exists.
+function sdText(score){return score==null?'':`・標準偏差×${Math.abs(score)>=10?Math.round(Math.abs(score)):Math.abs(score).toFixed(1)}`}
+function ratioText(value,baseline,kind,score){if(baseline==null)return '';if(!baseline)return kind==='holiday'?'（休日なのに利用）':'（普段は利用なし）';const r=value/baseline;return `（普段 ${compact(baseline)} の ${r>=10?Math.round(r):r.toFixed(1)}倍${sdText(score)}）`}
 function productName(product){return product?product.toUpperCase():'全製品'}
 // One short sentence per signal: what, how much, compared with what.
 function signalSentence(a,kind=kindOf(a.date)){switch(a.type){
-  case 'token_spike':case 'token_notable':return `${productName(a.product)}のトークン ${compact(a.value)}${ratioText(a.value,a.baseline,kind)}`;
-  case 'tokens_per_user_spike':case 'tokens_per_user_notable':return `1人あたり${productName(a.product)} ${compact(a.value)}${ratioText(a.value,a.baseline,kind)}`;
-  case 'dau_spike':case 'dau_spike_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人（普段 ${fmt.format(a.baseline)}人）`;
-  case 'dau_drop':case 'dau_drop_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人に減少（普段 ${fmt.format(a.baseline)}人）`;
+  case 'token_spike':case 'token_notable':return `${productName(a.product)}のトークン ${compact(a.value)}${ratioText(a.value,a.baseline,kind,a.score)}`;
+  case 'tokens_per_user_spike':case 'tokens_per_user_notable':return `1人あたり${productName(a.product)} ${compact(a.value)}${ratioText(a.value,a.baseline,kind,a.score)}`;
+  case 'dau_spike':case 'dau_spike_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人（普段 ${fmt.format(a.baseline)}人${sdText(a.score)}）`;
+  case 'dau_drop':case 'dau_drop_notable':return `${productName(a.product)}のDAU ${fmt.format(a.value)}人に減少（普段 ${fmt.format(a.baseline)}人${sdText(a.score)}）`;
   case 'dau_new_max':return `${productName(a.product)}の利用者 ${fmt.format(a.value)}人は直前28日で最多（これまでの最多 ${fmt.format(a.baseline)}人、+${fmt.format(a.value-a.baseline)}人）`;
   case 'holiday_usage':return `休日なのに平日並みの利用 ${compact(a.value)}（平日の ${Math.round(a.value/a.baseline*100)}%）`;
   case 'stale_data':return a.reason;
