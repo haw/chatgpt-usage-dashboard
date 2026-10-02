@@ -774,6 +774,24 @@ function renderContextSeries(signal, rows, date, kind) {
 const AI_MODEL = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
 const AI_LIBRARY = 'https://esm.run/@mlc-ai/web-llm';
 let aiEngine = null, aiLoading = null;  // {kind:'builtin'|'webllm', ...}
+const AI_PREF_KEY = 'chatgpt-dashboard.ai-model.v1';
+let aiPreference = (() => { try { const v = localStorage.getItem(AI_PREF_KEY); return ['webllm', 'builtin', 'auto'].includes(v) ? v : 'webllm'; } catch (_) { return 'webllm'; } })();
+const AI_MODEL_NAMES = {builtin:'Chrome内蔵AI（Gemini Nano）', webllm:'ブラウザ内AI（Qwen2.5 1.5B）'};
+function renderAiPreference() {
+  document.querySelectorAll('.ai-model').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.model === aiPreference)));
+  document.querySelector('#ai-model-note').textContent = {
+    webllm: 'Qwen2.5-1.5B-Instruct を WebGPU で実行します。初回に約1GBを取得しブラウザにキャッシュします。',
+    builtin: 'Chrome の Prompt API（Gemini Nano）を使います。Chrome 148 以降、または chrome://flags で有効化が必要です。',
+    auto: '内蔵AIが使えればそれを、無ければ Qwen を使います。',
+  }[aiPreference];
+}
+document.querySelectorAll('.ai-model').forEach(button => button.addEventListener('click', () => {
+  if (button.dataset.model === aiPreference) return;
+  aiPreference = button.dataset.model;
+  try { localStorage.setItem(AI_PREF_KEY, aiPreference); } catch (_) {}
+  aiEngine = null; aiLoading = null;  // next request loads the chosen model
+  renderAiPreference();
+}));
 const AI_SYSTEM = '役割: 統計の知識がない担当者向けに、ChatGPT利用量ダッシュボードの1日分の判定結果を日本語で説明する。' +
   '制約: 与えられたJSONの数値だけを根拠にする。推測や、不正・悪意の断定はしない。専門用語（標準偏差・中央値・判定ライン）は使わず、「普段の何倍」「偶然では起きにくい」のような言葉に言い換える。3文以内、敬体。';
 
@@ -781,6 +799,13 @@ const AI_SYSTEM = '役割: 統計の知識がない担当者向けに、ChatGPT�
 async function builtinAvailability() {
   try { return 'LanguageModel' in window ? await window.LanguageModel.availability() : 'unavailable'; }
   catch (_) { return 'unavailable'; }
+}
+// Which backend the preference resolves to right now: 'builtin', 'webllm' or null when neither works.
+async function chooseAiBackend() {
+  const builtin = await builtinAvailability();
+  if (aiPreference === 'builtin') return builtin !== 'unavailable' ? 'builtin' : null;
+  if (aiPreference === 'webllm') return navigator.gpu ? 'webllm' : null;
+  return builtin !== 'unavailable' ? 'builtin' : navigator.gpu ? 'webllm' : null;
 }
 
 function readingFacts(entry) {
@@ -845,13 +870,11 @@ function renderReading(entry) {
   const button = document.querySelector('#ai-generate');
   button.dataset.date = entry.date;
   const status = document.querySelector('#ai-status');
-  builtinAvailability().then(builtin => {
-    const supported = builtin !== 'unavailable' || !!navigator.gpu;
-    button.disabled = !supported || !facts.observations.length;
-    if (aiEngine) status.textContent = aiEngine.kind === 'builtin' ? 'Chrome内蔵AI（Gemini Nano）' : 'ブラウザ内AI（Qwen2.5 1.5B）';
-    else if (builtin !== 'unavailable') status.textContent = builtin === 'available' ? 'Chrome内蔵AI（Gemini Nano）を使います' : 'Chrome内蔵AIのモデルを初回に取得します';
-    else if (navigator.gpu) status.textContent = '内蔵AIがないため、初回は約1GBのモデルを取得します';
-    else status.textContent = 'このブラウザではAIを使えません（Chromeで利用できます）';
+  chooseAiBackend().then(backend => {
+    button.disabled = !backend || !facts.observations.length;
+    if (!backend) status.textContent = aiPreference === 'builtin' ? 'Chrome内蔵AIが使えません（設定で切り替えられます）' : 'このブラウザではAIを使えません（Chrome・WebGPUが必要）';
+    else if (aiEngine) status.textContent = `${AI_MODEL_NAMES[aiEngine.kind]} 読み込み済み`;
+    else status.textContent = `${AI_MODEL_NAMES[backend]} を使います${backend === 'webllm' ? '（初回は約1GBを取得）' : ''}`;
   });
 }
 
@@ -859,7 +882,9 @@ async function loadAi(status) {
   if (aiEngine) return aiEngine;
   if (!aiLoading) {
     aiLoading = (async () => {
-      if (await builtinAvailability() !== 'unavailable') {
+      const backend = await chooseAiBackend();
+      if (!backend) throw new Error('使えるAIがありません');
+      if (backend === 'builtin') {
         const session = await window.LanguageModel.create({
           initialPrompts: [{role:'system', content:AI_SYSTEM}],
           expectedInputs: [{type:'text', languages:['ja']}], expectedOutputs: [{type:'text', languages:['ja']}],
@@ -868,7 +893,6 @@ async function loadAi(status) {
         aiEngine = {kind:'builtin', ask: async text => (await session.clone()).prompt(text)};
         return aiEngine;
       }
-      if (!navigator.gpu) throw new Error('WebGPU がありません');
       const webllm = await import(AI_LIBRARY);
       const engine = await webllm.CreateMLCEngine(AI_MODEL, {initProgressCallback: p => { status.textContent = p.text; }});
       aiEngine = {kind:'webllm', ask: async text => (await engine.chat.completions.create({
@@ -892,7 +916,7 @@ document.querySelector('#ai-generate').addEventListener('click', async () => {
     const user = `判定結果: ${JSON.stringify(facts)}\n「この日は何が普段と違うか」「どのくらい珍しいか」「次に何を確認するとよいか」を、この順で3文以内で書いてください。`;
     output.textContent = (await engine.ask(user)).trim();
     output.hidden = false;
-    status.textContent = engine.kind === 'builtin' ? 'Chrome内蔵AI（Gemini Nano）の読み取り' : 'ブラウザ内AI（Qwen2.5 1.5B）の読み取り';
+    status.textContent = `${AI_MODEL_NAMES[engine.kind]}の読み取り`;
   } catch (error) {
     status.textContent = `AIを使えませんでした: ${error.message}`;
   } finally {
@@ -917,6 +941,7 @@ async function markDay(date, kind, button) {
 
 renderSensitivity();
 renderDayOverrideList();
+renderAiPreference();
 load();
 const initialRoute = routeFromPath(location.pathname);
 history.replaceState({tab:initialRoute.tab, date:initialRoute.date}, '', location.pathname);
