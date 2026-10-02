@@ -592,8 +592,9 @@ function renderTriageEntry(entry) {
   const f = entry.facts || {};
   const kind = f.kind === 'holiday' ? `休日${f.kind_source === 'inferred' ? '（推定）' : f.kind_source === 'override' ? '（手動）' : ''}` : '平日';
   const facts = [kind, f.max_dau != null ? `DAU ${fmt.format(f.max_dau)}` : null, f.total_tokens != null ? `${compact(f.total_tokens)} tokens` : null].filter(Boolean);
-  const change = entry.continuing ? `継続${entry.streak}日目` : entry.novel ? '初めてのパターン' : (entry.streak > 1 ? `${entry.streak}日目` : 'この日から');
   const strong = entry.observations.filter(o => o.severity !== 'info');
+  // Onset / continuation only makes sense when something actually crossed a line.
+  const change = !strong.length ? '' : entry.continuing ? `継続${entry.streak}日目` : entry.novel ? '初めてのパターン' : (entry.streak > 1 ? `${entry.streak}日目` : 'この日に発生');
   const info = entry.observations.filter(o => o.severity === 'info');
   const line = o => `<li class="sev-${esc(o.severity)}" title="${esc(detectorLabels[o.detector] || o.detector)}">${esc(signalSentence(o, f.kind))}${o.threshold != null && o.detector !== 'dau_increase' ? `<small class="muted">判定ライン ${compact(o.threshold)}</small>` : ''}${o.streak > 1 ? `<small class="muted">${o.streak}日連続</small>` : ''}</li>`;
   const checked = !!entry.disposition;
