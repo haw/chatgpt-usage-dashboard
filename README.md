@@ -17,7 +17,9 @@ docker compose up -d --build dashboard
 
 「アップロードして分析」を押すと、既存データへ日付単位で上書き保存されます。停止は `docker compose down`、ログ確認は `docker compose logs -f dashboard` です。
 
-ローカルの保存データだけを削除する場合は、プロジェクトルートで `make clear-data` を実行し、確認に `y` と入力します。`./data` の中身だけを削除し、S3には接続しません。`data/.gitkeep` は残ります。
+コンテナは非rootユーザーで動作します。ローカルの `data/` をホストユーザーの所有に合わせるため、Composeは既定でUID/GID `1000:1000` を使います。異なる場合は起動前に `LOCAL_UID` と `LOCAL_GID` を設定してください（例: `LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose up -d --build dashboard`）。
+
+ローカルの保存データだけを削除する場合は、プロジェクトルートで `make clear-data` を実行し、確認に `y` と入力します。`./data` の中身だけをホストユーザー権限で削除し、S3には接続しません。`data/.gitkeep` は残ります。
 
 ## 表示と異常検知
 

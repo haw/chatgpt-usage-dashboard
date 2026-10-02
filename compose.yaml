@@ -1,6 +1,7 @@
 services:
   dashboard:
     build: .
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     env_file:
       - path: .env
         required: false
@@ -20,6 +21,7 @@ services:
 
   collector:
     build: .
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     profiles: ["tools"]
     env_file:
       - path: .env

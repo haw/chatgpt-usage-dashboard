@@ -8,6 +8,7 @@
 - [x] 元JSON保存と履歴表示に対応し、既存CSV履歴も読み込めるようにする
 - [x] 画面、仕様書、READMEをJSON取込へ更新する
 - [x] ローカル `./data` のみを消去する確認付きMakeターゲットを追加する
+- [x] Dashboard・collectorコンテナを非root実行にし、ホストUID/GIDに合わせてローカルデータを保存する
 
 ## 集計CSV版MVP
 

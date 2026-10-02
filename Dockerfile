@@ -17,7 +17,12 @@ COPY app ./app
 COPY --from=frontend-assets /build/app/static/vendor ./app/static/vendor
 RUN pip install --no-cache-dir .
 
-RUN mkdir -p /app/data
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --create-home --home-dir /home/app --shell /usr/sbin/nologin app \
+    && mkdir -p /app/data \
+    && chown -R app:app /app
+
+USER app
 
 EXPOSE 8000
 CMD ["python", "-m", "app", "serve", "--host", "0.0.0.0", "--port", "8000"]
