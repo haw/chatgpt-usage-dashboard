@@ -40,6 +40,7 @@ class Storage(Protocol):
     def save_raw_page(self, run_id: str, page_number: int, payload: Any) -> Any: ...
     def save_raw_csv(self, run_id: str, name: str, payload: bytes) -> Any: ...
     def save_raw_json(self, run_id: str, name: str, payload: bytes) -> Any: ...
+    def load_latest_workspace_json(self, name: str) -> bytes | None: ...
     def list_import_history(self) -> list[dict[str, Any]]: ...
     def load_workspace_usage(self) -> list[dict[str, Any]]: ...
     def merge_workspace_usage(self, incoming: list[dict[str, Any]]) -> int: ...
@@ -89,6 +90,15 @@ class LocalStorage:
         path = self.raw_dir / run_id / name
         path.write_bytes(payload)
         return path
+
+    def load_latest_workspace_json(self, name: str) -> bytes | None:
+        if name not in {"active-users.json", "tokens.json"}:
+            raise ValueError("unsupported workspace JSON name")
+        for run_dir in sorted(self.raw_dir.iterdir(), key=lambda item: item.name, reverse=True):
+            path = run_dir / name
+            if run_dir.is_dir() and path.is_file():
+                return path.read_bytes()
+        return None
 
     def list_import_history(self) -> list[dict[str, Any]]:
         history: list[dict[str, Any]] = []
@@ -303,6 +313,23 @@ class S3Storage:
             raise ValueError("unsupported raw JSON name")
         digest = hashlib.sha256(payload).hexdigest()
         return self._put(f"raw/{run_id}/{name}", payload, "application/json", {"sha256": digest})
+
+    def load_latest_workspace_json(self, name: str) -> bytes | None:
+        if name not in {"active-users.json", "tokens.json"}:
+            raise ValueError("unsupported workspace JSON name")
+        root = self._key("raw/")
+        paginator = self.client.get_paginator("list_objects_v2")
+        run_ids = {
+            item["Key"][len(root):].split("/", 1)[0]
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=root)
+            for item in page.get("Contents", [])
+            if item["Key"].startswith(root) and "/" in item["Key"][len(root):]
+        }
+        for run_id in sorted(run_ids, reverse=True):
+            payload = self._get(f"raw/{run_id}/{name}")
+            if payload is not None:
+                return payload
+        return None
 
     def list_import_history(self) -> list[dict[str, Any]]:
         root = self._key("raw/")

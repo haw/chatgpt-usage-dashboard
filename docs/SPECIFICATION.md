@@ -8,11 +8,11 @@ ChatGPT管理画面から出力した日次集計JSONを管理者が手動アッ
 
 ## 2. MVPスコープ
 
-- `chart_key` が `active-users` と `tokens` の2つのAnalytics JSONをブラウザから同時にアップロードする。
+- `chart_key` が `active-users` と `tokens` のAnalytics JSONは1つずつ、または2つ同時にアップロードできる。単独の場合は未分析のまま保存し、対応する種類のJSONがそろった時に分析へ反映する。
 - 画面のファイル選択はJSONのみとし、旧CSV形式はAPI互換用として同種2ファイルの組合せに限り受け付ける。
 - 個人別分析では、対象ユーザーで絞り込んだ `chart_key: "tokens"` のJSONとユーザー識別子をアップロードする。
 - `series` 内にChat・Codex・Workが各1つあることと、`rows` の開始日・終了日・系列値を検証して開始日をキーに結合する。
-- UTF-8 JSON、正しい `chart_key`、非負整数、日付の一意性、2 JSONの日付一致を検証する。
+- UTF-8 JSON、正しい `chart_key`、非負整数、日付の一意性、2種類がそろった場合の日付一致を検証する。
 - 取込元JSONを加工せず保存し、正規化データは日付単位で冪等に置換する。
 - ローカルでは `./data` 配下をストレージとして使用する。
 - ダッシュボードは保存済みデータだけを読み、OpenAI APIへアクセスしない。
@@ -24,7 +24,7 @@ Chat/Codex/Workのアクティブユーザーには同一人物が重複する�
 ## 3. 画面要件
 
 - 全体分析と個人別分析をタブで分離し、切り替えて利用できる。
-- JSONアップロード: 1つの「アップロードして分析」ボタンから複数ファイル選択を開き、2ファイル選択後は自動送信する。`chart_key` から種類を自動判定して取込結果を表示する。
+- JSONアップロード: 1つの「アップロードして分析」ボタンから1ファイルまたは複数ファイルを選択後、自動送信する。`chart_key` から種類を自動判定し、片方だけの場合は保留中と案内する。
 - 取込状態: 最終成功日時、対象期間、日数、エラー状態
 - KPI: 最新日の製品別最大DAU、期間総トークン、日平均トークン、検出アラート数
 - Chat/Codex/Work別の日次アクティブユーザー推移
@@ -91,7 +91,7 @@ data/
 
 ## 6. API
 
-- `POST /api/import`: multipartの `files` 複数項目を受け取り、各JSONの `chart_key` から種類を判定する。旧形式の `active_users_file`・`tokens_file` 項目も互換用に受け付ける。
+- `POST /api/import`: multipartの `files` 1〜2項目を受け取り、各JSONの `chart_key` から種類を判定する。単独アップロードはrawに保留し、反対種類の直近JSONが同じ期間なら両方を正規化する。旧形式の `active_users_file`・`tokens_file` 項目も互換用に受け付ける。
 - `GET /api/dashboard`: 保存済み集計と異常兆候を返す。
 - `GET /health`: ヘルスチェックを返す。
 - `POST /api/individual/import`: ユーザー識別子と個人別トークンJSONを取り込む。

@@ -58,6 +58,13 @@ def parse_token_json(token_bytes: bytes) -> list[dict[str, Any]]:
     ]
 
 
+def parse_workspace_json(payload: bytes) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Validate one workspace Analytics JSON and return its type and daily values."""
+    chart_key = identify_chart_key(payload)
+    label = "アクティブユーザーJSON" if chart_key == "active-users" else "トークンJSON"
+    return chart_key, _parse(payload, chart_key, label)
+
+
 def _parse(payload: bytes, expected_key: str, label: str) -> dict[str, dict[str, Any]]:
     try:
         document = json.loads(payload.decode("utf-8-sig"))

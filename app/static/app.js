@@ -32,8 +32,8 @@ workspaceImportButton.addEventListener('click', () => workspaceFiles.click());
 workspaceFiles.addEventListener('change', async () => {
   const files = Array.from(workspaceFiles.files || []);
   if (!files.length) return;
-  if (files.length !== 2) {
-    setMessage('アクティブユーザーJSONとトークンJSONの2ファイルを選択してください。', 'error');
+  if (files.length > 2) {
+    setMessage('一度に選べるJSONは2ファイルまでです。', 'error');
     workspaceFiles.value = '';
     return;
   }
@@ -48,7 +48,7 @@ workspaceFiles.addEventListener('change', async () => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     render(data);
-    setMessage(`${data.state.imported_days}日分を取り込みました。`, 'success');
+    setMessage(data.import_notice || `${data.state.imported_days}日分を取り込みました。`, 'success');
   } catch (error) {
     setMessage(error.message, 'error');
   } finally {
