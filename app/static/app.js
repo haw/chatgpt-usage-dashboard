@@ -610,7 +610,30 @@ document.querySelector('#checked-reset').addEventListener('click', async event =
 
 // ---- floating "how it crossed the line" charts ----
 let triageEntries = new Map();
+let contextData = null;  // {entry, rows, date} of the open panel, re-rendered when the mode changes
+const CONTEXT_MODE_KEY = 'chatgpt-dashboard.context-mode.v1';
+let contextMode = (() => { try { const v = localStorage.getItem(CONTEXT_MODE_KEY); return ['box', 'series', 'both'].includes(v) ? v : 'box'; } catch (_) { return 'box'; } })();
 document.querySelector('#context-close').addEventListener('click', () => document.querySelector('#context-dialog').close());
+document.querySelectorAll('.context-mode').forEach(button => button.addEventListener('click', () => {
+  contextMode = button.dataset.mode;
+  try { localStorage.setItem(CONTEXT_MODE_KEY, contextMode); } catch (_) {}
+  renderContextMode();
+  if (contextData) renderContextCharts();
+}));
+function renderContextMode() {
+  document.querySelectorAll('.context-mode').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === contextMode)));
+}
+function renderContextCharts() {
+  const {entry, rows, date} = contextData;
+  const strong = entry.observations.filter(o => o.severity !== 'info');
+  const list = strong.length ? strong : entry.observations;
+  document.querySelector('#context-charts').innerHTML = list.map(o => {
+    const title = `${detectorLabels[o.detector] || o.detector}${o.product ? ` · ${o.product.toUpperCase()}` : ''}`;
+    const box = contextMode !== 'series' ? renderContextChart(o, rows, date, entry.facts.kind) : '';
+    const series = contextMode !== 'box' ? renderContextSeries(o, rows, date, entry.facts.kind) : '';
+    return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(o, entry.facts.kind))}</p>${box}${series}</section>`;
+  }).join('');
+}
 
 function metricOf(signal, row) {
   const p = signal.product;
@@ -636,9 +659,9 @@ async function openContext(date) {
     const response = await fetch(`/api/context?${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    const strong = entry.observations.filter(o => o.severity !== 'info');
-    const list = strong.length ? strong : entry.observations;
-    charts.innerHTML = list.map(o => renderContextChart(o, data.rows, date, entry.facts.kind)).join('');
+    contextData = {entry, rows:data.rows, date};
+    renderContextMode();
+    renderContextCharts();
   } catch (error) {
     charts.innerHTML = `<p class="message error">読み込みに失敗しました: ${esc(error.message)}</p>`;
   }
@@ -679,9 +702,38 @@ function renderContextChart(signal, rows, date, kind) {
   const ref = refValue != null ? `<text x="${x(refValue)}" y="${mid + boxHalf + 14}" text-anchor="middle" class="axis-label">${baseLabel} ${compact(refValue)}</text>` : '';
   const day = `<path d="M ${x(dayValue)} ${mid - 9} l 9 9 l -9 9 l -9 -9 Z" class="ctx-day"><title>${date} ${fmt.format(Math.round(dayValue))}</title></path><text x="${x(dayValue)}" y="${mid + boxHalf + 30}" text-anchor="middle" class="axis-label current">この日 ${compact(dayValue)}</text>`;
   const ticks = [0, .5, 1].map(part => `<text x="${x(maxValue * part)}" y="${height - 4}" text-anchor="${part === 0 ? 'start' : part === 1 ? 'end' : 'middle'}" class="axis-label">${compact(maxValue * part)}</text>`).join('');
-  const title = `${detectorLabels[signal.detector] || signal.detector}${signal.product ? ` · ${signal.product.toUpperCase()}` : ''}`;
   const kindLabel = sameKind === 'holiday' ? '休日' : '平日';
-  return `<section class="context-chart"><h3>${esc(title)}</h3><p>${esc(signalSentence(signal, kind))}</p><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><line x1="${left}" x2="${width - right}" y1="${height - 16}" y2="${height - 16}" class="grid-line"/>${box}${outlierDots}${threshold}${ref}${day}${ticks}</svg><small class="muted">箱ひげ: 基準にした${kindLabel} ${sorted.length}日の分布（箱＝中央50%、線＝中央値、ひげ＝通常の範囲）· 点線: 判定ライン · ◆ この日</small></section>`;
+  return `<figure class="context-figure"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><line x1="${left}" x2="${width - right}" y1="${height - 16}" y2="${height - 16}" class="grid-line"/>${box}${outlierDots}${threshold}${ref}${day}${ticks}</svg><figcaption class="muted">分布 — 箱ひげ: 基準にした${kindLabel} ${sorted.length}日（箱＝中央50%、線＝中央値、ひげ＝通常の範囲）· 点線: 判定ライン · ◆ この日</figcaption></figure>`;
+}
+
+// Time series of the same metric: same-kind days joined by a line (the series the judgement
+// is made on), other-kind days as faded dots, median and threshold as horizontal lines, this day in red.
+function renderContextSeries(signal, rows, date, kind) {
+  const sameKind = signal.detector === 'holiday_usage' ? 'workday' : kind;
+  const points = rows.map(row => ({date:row.date, value:metricOf(signal, row), kind:row.day_kind})).filter(p => p.value != null);
+  if (!points.length) return '';
+  const width = 640, height = 190, left = 58, right = 14, top = 14, bottom = 28;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom;
+  const levels = [signal.baseline, signal.threshold].filter(v => v != null);
+  const max = Math.max(1, ...points.map(p => p.value), ...levels) * 1.08;
+  const x = i => left + (points.length === 1 ? plotWidth / 2 : i * plotWidth / (points.length - 1));
+  const y = v => top + plotHeight - v / max * plotHeight;
+  const dayIndex = points.findIndex(p => p.date === date);
+  const seriesPoints = points.map((p, i) => ({...p, i})).filter(p => p.kind === sameKind || p.date === date);
+  const seriesLine = `<polyline points="${seriesPoints.map(p => `${x(p.i)},${y(p.value)}`).join(' ')}" class="ctx-line" fill="none" vector-effect="non-scaling-stroke"/>`;
+  const grid = [0, .5, 1].map(part => `<line x1="${left}" x2="${width - right}" y1="${top + plotHeight * (1 - part)}" y2="${top + plotHeight * (1 - part)}" class="grid-line"/><text x="${left - 8}" y="${top + plotHeight * (1 - part) + 4}" text-anchor="end" class="axis-label">${compact(max * part)}</text>`).join('');
+  const dots = points.map((p, i) => {
+    const isDay = p.date === date;
+    const cls = isDay ? 'ctx-day' : p.kind === sameKind ? 'ctx-base' : 'ctx-other';
+    return `<circle cx="${x(i)}" cy="${y(p.value)}" r="${isDay ? 6 : p.kind === sameKind ? 3.5 : 2.5}" class="${cls}"><title>${p.date}${p.kind === 'holiday' ? '（休日）' : '（平日）'} ${fmt.format(Math.round(p.value))}</title></circle>`;
+  }).join('');
+  const guide = dayIndex >= 0 ? `<line x1="${x(dayIndex)}" x2="${x(dayIndex)}" y1="${top}" y2="${top + plotHeight}" class="ctx-guide"/>` : '';
+  const line = (v, cls, label) => v == null ? '' : `<line x1="${left}" x2="${width - right}" y1="${y(v)}" y2="${y(v)}" class="${cls}"/><text x="${width - right}" y="${y(v) - 4}" text-anchor="end" class="axis-label">${label} ${compact(v)}</text>`;
+  const step = Math.max(1, Math.ceil(points.length / 8));
+  const labels = points.map((p, i) => i % step === 0 || p.date === date ? `<text x="${x(i)}" y="${height - 8}" text-anchor="middle" class="axis-label${p.date === date ? ' current' : ''}">${p.date.slice(5)}</text>` : '').join('');
+  const baseLabel = signal.detector === 'dau_increase' ? 'これまでの最多' : signal.detector === 'holiday_usage' ? '平日の中央値' : '中央値';
+  const kindLabel = sameKind === 'holiday' ? '休日' : '平日';
+  return `<figure class="context-figure"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${grid}${guide}${line(signal.threshold, 'analysis-threshold-line', '判定ライン')}${line(signal.baseline, 'analysis-baseline-line', baseLabel)}${seriesLine}${dots}${labels}</svg><figcaption class="muted">推移 — 実線: ${kindLabel}の流れ（基準に使う系列）· 薄い点: ${kindLabel === '休日' ? '平日' : '休日'}（基準に含まない）· 赤: この日</figcaption></figure>`;
 }
 
 async function markDay(date, kind, button) {
