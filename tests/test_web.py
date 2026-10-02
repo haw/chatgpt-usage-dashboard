@@ -129,7 +129,7 @@ def test_index_has_four_views():
     assert response.status_code == 200
     for view in ("triage", "workspace", "individual", "settings"):
         assert f'id="{view}-tab"' in response.text
-    assert "検出された日" in response.text and "取込と設定" in response.text
+    assert "インサイト" in response.text and "取込と設定" in response.text
     assert 'id="context-dialog"' in response.text
     assert 'id="triage-today"' in response.text and 'id="workspace-json-files"' in response.text
     assert 'id="settings-dialog"' in response.text
