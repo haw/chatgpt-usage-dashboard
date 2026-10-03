@@ -204,13 +204,10 @@ S3上のキーは `raw/<run-id>/...`、`normalized/*.jsonl`、`state/*.json` で
 画面は `frontend/`（Vite + React + TypeScript + MUI + ECharts）へ移行中です。バックエンドは API 専任になります。
 
 ```bash
-# バックエンド（ポート 8000）
-docker compose up -d --build dashboard      # または: .venv/bin/uvicorn app.web:app --port 8000
-# フロントエンド（ポート 5173。/api などはバックエンドへプロキシ）
-cd frontend && npm ci && npm run dev
+docker compose up -d --build dashboard frontend
 ```
 
-http://localhost:5173 を開きます。`AUTH_MODE=google` で使う場合は、Google Cloud の「承認済みのリダイレクト URI」に `http://localhost:5173/auth/callback` も登録してください（プロキシは Host ヘッダを通すので、コールバック先は 5173 になります）。
+バックエンド（8000）とフロントの開発サーバー（5180、`/api` などはバックエンドへプロキシ）が起動します。http://localhost:5180 を開きます。`frontend/` を編集すると即時に反映されます（初回は `npm ci` が走るため1〜2分かかります。進捗は `docker compose logs -f frontend`）。Docker を使わない場合は `cd frontend && npm ci && npm run dev`。`AUTH_MODE=google` で使う場合は、Google Cloud の「承認済みのリダイレクト URI」に `http://localhost:5180/auth/callback` も登録してください（プロキシは Host ヘッダを通すので、コールバック先は 5173 になります）。
 
 - `npm run typecheck` / `npm run build` / `npm test`（コンポーネントテストは実 API に接続します。`BACKEND=http://localhost:8001` のように向き先を指定）
 - 移植状況: 推移・ログイン画面は React 版、インサイト・個人別・取込と設定は移植中。移行完了までは従来の画面（http://localhost:8000）も使えます。
