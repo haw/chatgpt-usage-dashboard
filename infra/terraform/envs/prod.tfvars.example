@@ -1,0 +1,19 @@
+# Copy to prod.tfvars (ignored by git) and adjust.
+aws_region           = "ap-northeast-1"
+environment          = "prod"
+github_repository    = "haw/chatgpt-usage-dashboard"
+auth_allowed_domains = ["haw.co.jp"]
+data_retention_days  = 0
+
+# Domain under the dev.haw.biz Route53 zone.
+domain_name     = "chatgpt-dashboard.dev.haw.biz"
+route53_zone_id = "" # make aws ARGS="route53 list-hosted-zones-by-name --dns-name dev.haw.biz --query HostedZones[0].Id"
+
+# Where the API task runs: a VPC and two or more of its public subnets (different availability zones).
+#   make aws ARGS="ec2 describe-subnets --filters Name=vpc-id,Values=<vpc> --query Subnets[].[SubnetId,AvailabilityZone,MapPublicIpOnLaunch] --output table"
+vpc_id          = "vpc-xxxxxxxx"
+task_subnet_ids = ["subnet-xxxxxxxx", "subnet-yyyyyyyy"]
+
+# CodeBuild reads the repository through a CodeConnections connection. Leave this out to create a new
+# connection (authorise it once in the AWS console), or reuse one that is already authorised:
+# github_connection_arn = "arn:aws:codeconnections:ap-northeast-1:<account>:connection/<id>"

@@ -1,4 +1,6 @@
-FROM python:3.12-slim
+# The production build (buildspec.yml) passes the ECR Public mirror of this image.
+ARG PYTHON_IMAGE=python:3.12-slim
+FROM ${PYTHON_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

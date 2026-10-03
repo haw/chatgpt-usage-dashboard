@@ -20,7 +20,8 @@
 - [x] `frontend/`（Vite + React + TypeScript + MUI + ECharts）に全画面を移植する
 - [x] Docker Compose に `frontend` サービスを追加する
 - [x] バックエンドから画面配信・ログインページ・旧 Admin API 収集機能（collector）を削除し API 専任にする
-- [ ] Terraform に S3 + CloudFront（画面）と App Runner（API）を追加し、CI からデプロイする
+- [x] Terraform に S3 + CloudFront（画面）と API Gateway 経由の ECS Fargate（API）、SSM のシークレット、独自ドメイン `chatgpt-dashboard.dev.haw.biz` を追加し、AWS CodeBuild（`buildspec.yml`）で配信する
+- [ ] HAW の AWS で初回セットアップ（state バケット、ECR への初回 push、GitHub 接続の承認、シークレット）を行い本番を公開する
 
 ## 異常検知の再設計
 
@@ -79,10 +80,11 @@
 ## AWS化
 
 - [x] S3ストレージアダプターを追加する
-- [ ] ECS/FargateまたはLambdaの費用比較後に実行基盤をIaC化する
-- [ ] CloudFront、S3、API Gateway、CognitoをIaC化する
-- [ ] GitHub Actions OIDCとAWSデプロイを構成する
-- [ ] 保持期間、暗号化、監視、アラートを設定する
+- [x] Terraform の土台（S3 backend、データバケット、CodeBuild の配信）と判断事項の文書（infra/terraform/README.md）を用意する
+- [x] 実行基盤を API Gateway + VPC リンク経由の ECS Fargate（API）+ S3/CloudFront（画面）に決めて構成する（App Runner は新規利用不可、Express Mode は ALB 固定費が乗る、共有 ALB は接続元限定で CloudFront から届かない）
+- [x] 認証はアプリ内 Google OAuth、入口は CloudFront（独自ドメインは任意）
+- [x] AWS CodeBuild（GitHub から取得）でイメージを ECR に push し、画面を S3 へ配信する
+- [ ] 保持期間、ログ保持、監視、アラートを設定する
 
 ## 個人別トークン分析
 

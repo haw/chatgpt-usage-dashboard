@@ -47,6 +47,7 @@ app = FastAPI(
 _settings = Settings.from_env()
 # AUTH_MODE=google installs Google OIDC login and protects every route; AUTH_MODE=none (default) leaves it open.
 oauth = auth.install(app, _settings)
+auth.install_origin_check(app, _settings.origin_verify_secret)  # added last, so it runs first
 
 
 @app.get("/health", tags=["ops"], summary="ヘルスチェック")

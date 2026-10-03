@@ -41,6 +41,29 @@ services:
         condition: service_healthy
     init: true
 
+  # Terraform + AWS CLI (infra/terraform). The AWS access key lives only in the `aws_credentials` volume,
+  # not in the host's ~/.aws, and the container cannot see the host's other AWS profiles:
+  #   make aws-configure      # once; stored in the volume
+  #   make tf-plan            # see the tf-* targets in the Makefile
+  terraform:
+    build:
+      context: ./infra/terraform
+      args:
+        UID: ${LOCAL_UID:-1000}
+        GID: ${LOCAL_GID:-1000}
+    profiles: ["tools"]
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    working_dir: /workspace/infra/terraform
+    environment:
+      HOME: /home/tf
+      AWS_PROFILE:
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      TF_IN_AUTOMATION: "1"
+    volumes:
+      - .:/workspace
+      - aws_credentials:/home/tf/.aws
+
   test:
     image: python:3.12-slim
     profiles: ["tools"]
@@ -52,3 +75,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  aws_credentials:

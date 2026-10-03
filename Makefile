@@ -1,4 +1,4 @@
-.PHONY: build up down test logs clear-data
+.PHONY: build up down test logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image deploy deploy-status
 
 build:
 	docker compose build
@@ -14,6 +14,84 @@ test:
 
 logs:
 	docker compose logs -f dashboard
+
+# --- Terraform / AWS CLI (infra/terraform), always inside the tools container ---------------
+# ENV picks envs/<ENV>.tfvars and envs/<ENV>.backend.hcl; ARGS is appended to the command, e.g.
+#   make tf-plan
+#   make tf-apply ARGS="-target=aws_ecr_repository.api"
+#   make -s tf-output ARGS="-raw ecr_repository"
+#   make tf ARGS="state list"            # any other terraform subcommand
+#   make aws ARGS="sts get-caller-identity"
+ENV ?= prod
+TF_RUN = docker compose run --rm terraform
+
+tf-build:
+	docker compose build terraform
+
+# One-time: store the access key in the container's credentials volume.
+aws-configure:
+	$(TF_RUN) aws configure
+
+aws-whoami:
+	$(TF_RUN) aws sts get-caller-identity
+
+# A shell in the container (terraform, aws, jq, openssl) for anything interactive.
+tf-shell:
+	$(TF_RUN) bash
+
+tf:
+	$(TF_RUN) terraform $(ARGS)
+
+aws:
+	$(TF_RUN) aws $(ARGS)
+
+# One-time: create this project's Terraform state bucket and write envs/$(ENV).backend.hcl.
+# Safe to re-run (no changes once the bucket exists).
+tf-bootstrap:
+	$(TF_RUN) sh -ec '\
+		terraform -chdir=bootstrap init -input=false && \
+		terraform -chdir=bootstrap apply -var environment=$(ENV) && \
+		terraform -chdir=bootstrap output -raw backend_config > envs/$(ENV).backend.hcl && \
+		echo "Wrote infra/terraform/envs/$(ENV).backend.hcl"'
+
+tf-init:
+	$(TF_RUN) terraform init -backend-config=envs/$(ENV).backend.hcl $(ARGS)
+
+tf-plan:
+	$(TF_RUN) terraform plan -var-file=envs/$(ENV).tfvars $(ARGS)
+
+tf-apply:
+	$(TF_RUN) terraform apply -var-file=envs/$(ENV).tfvars $(ARGS)
+
+tf-output:
+	$(TF_RUN) terraform output $(ARGS)
+
+tf-fmt:
+	$(TF_RUN) terraform fmt -recursive
+
+# What CI checks; needs no AWS credentials.
+tf-check:
+	$(TF_RUN) sh -ec 'terraform fmt -check -recursive && terraform init -backend=false -input=false >/dev/null && terraform validate'
+
+# One-time, before the first full apply: the ECS service needs an image to start and CodeBuild
+# needs an authorised GitHub connection. Creates only the ECR repository and the (pending)
+# connection, then pushes the API image built on the host. CodeBuild pushes from then on.
+tf-first-image:
+	$(TF_RUN) terraform apply -var-file=envs/$(ENV).tfvars -target=aws_ecr_repository.api -target=aws_codeconnections_connection.github
+	REPO=$$($(TF_RUN) terraform output -raw ecr_repository) && \
+	$(TF_RUN) aws ecr get-login-password | docker login --username AWS --password-stdin $${REPO%%/*} && \
+	docker build -t $$REPO:latest . && \
+	docker push $$REPO:latest
+
+# Deploys run in AWS CodeBuild on every push to main. These start one by hand and list recent ones.
+deploy:
+	$(TF_RUN) sh -ec 'aws codebuild start-build --project-name "$$(terraform output -raw codebuild_project)" \
+		--query "build.{id:id,status:buildStatus,branch:sourceVersion}" --output table'
+
+deploy-status:
+	$(TF_RUN) sh -ec 'IDS=$$(aws codebuild list-builds-for-project --project-name "$$(terraform output -raw codebuild_project)" --no-paginate --query "ids[:5]" --output text); \
+		if [ -z "$$IDS" ] || [ "$$IDS" = "None" ]; then echo "No builds yet."; exit 0; fi; \
+		aws codebuild batch-get-builds --ids $$IDS --query "builds[].{started:startTime,status:buildStatus,phase:currentPhase,commit:resolvedSourceVersion}" --output table'
 
 # Deletes only the local ./data contents using the current host user's permissions.
 clear-data:

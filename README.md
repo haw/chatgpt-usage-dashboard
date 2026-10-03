@@ -172,41 +172,7 @@ data/
 
 ## 保存先の切り替え
 
-ローカル開発では既定で `LocalStorage` を使い、Docker Composeの `./data:/app/data` ボリュームへ保存します。
-
-AWSでは次の環境変数をECSタスク定義などへ設定すると、同じデータ構造をS3へ保存します。
-
-```env
-STORAGE_BACKEND=s3
-S3_BUCKET=your-private-bucket
-S3_PREFIX=chatgpt-dashboard
-AWS_REGION=ap-northeast-1
-```
-
-AWSアクセスキーは設定せず、ECSタスクロールを利用してください。タスクロールには、対象プレフィックスへの `s3:GetObject`、`s3:PutObject` と、対象バケットへの `s3:ListBucket` が必要です。
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
-      "Resource": "arn:aws:s3:::your-private-bucket/chatgpt-dashboard/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::your-private-bucket",
-      "Condition": {
-        "StringLike": {"s3:prefix": "chatgpt-dashboard/raw/*"}
-      }
-    }
-  ]
-}
-```
-
-S3上のキーは `raw/<run-id>/...`、`normalized/*.jsonl`、`state/*.json` です。正規化データの更新は読込後に全体を書き戻す方式のため、アップロード処理を同時実行せず、ECSタスク数は1にするか外部で直列化してください。
+ローカル開発では既定で `LocalStorage` を使い、Docker Composeの `./data:/app/data` ボリュームへ保存します。`STORAGE_BACKEND=s3` にすると同じデータ構造をS3へ保存します。本番でのバケット・権限・環境変数は [infra/terraform/README.md](infra/terraform/README.md) を参照してください。
 
 ## テスト
 
@@ -222,6 +188,6 @@ API のテストは実データやネットワークを使わず、合成 fixtur
 - [MVP仕様書](docs/SPECIFICATION.md)
 - [タスクリスト](docs/TASKS.md)
 
-## 本番化の方針
+## 本番環境
 
-本番では環境変数でS3保存へ切り替え、Cognito等の認証を追加します。取込頻度が低く速度要件も高くないため、常時起動のECS Serviceより、S3 + Lambda/API Gateway + CloudFrontのサーバーレス構成の方が一般に低コストです。定期取得手段を用意できた場合のみEventBridge Schedulerを追加します。
+本番環境（AWS）は Terraform で構築し（適用は担当者が手元で実行）、アプリは `main` への push を契機に AWS CodeBuild が配信します（[buildspec.yml](buildspec.yml)）。構成・対象・使い方・判断事項は [infra/terraform/README.md](infra/terraform/README.md) にまとめています。Terraform と AWS CLI は専用コンテナで、`make tf-plan` / `make tf-apply` などの make コマンドから実行します。
