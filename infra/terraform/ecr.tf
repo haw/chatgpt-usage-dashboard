@@ -1,4 +1,4 @@
-# Container registry for the API image. CI pushes <sha> and latest; App Runner follows latest.
+# Container registry for the API image. CI pushes <sha> and latest; the ECS Express service is moved to <sha>.
 
 resource "aws_ecr_repository" "api" {
   name                 = "${local.name}-api"
