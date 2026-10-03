@@ -22,9 +22,9 @@ resource "aws_service_discovery_service" "api" {
       ttl  = 10
     }
   }
-
-  # ECS reports the task healthy or not from its container health check.
-  health_check_custom_config {}
+  # No health check block: ECS registers the task when it starts and removes it when it stops.
+  # (An empty health_check_custom_config is not stored by the provider and would replace the
+  # service on every apply.)
 }
 
 # The network interfaces API Gateway uses inside the VPC.
