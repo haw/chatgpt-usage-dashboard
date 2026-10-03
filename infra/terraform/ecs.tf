@@ -75,16 +75,14 @@ data "aws_iam_policy_document" "task" {
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["${aws_s3_bucket.data.arn}/chatgpt-dashboard/*"]
   }
+  # No s3:prefix condition: reading a key that does not exist yet (first import, no saved state)
+  # only returns "not found" when the caller may list the bucket; with a prefix condition S3
+  # answers 403 AccessDenied instead and the API fails with 500. The bucket holds nothing else.
   statement {
     sid       = "DataList"
     effect    = "Allow"
     actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.data.arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["chatgpt-dashboard/*"]
-    }
   }
 }
 
