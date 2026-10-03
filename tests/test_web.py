@@ -74,6 +74,16 @@ def test_json_batch_accepts_different_periods_and_validates_before_saving(tmp_pa
     assert client.get("/api/imports").json()["imports"][0]["days"] == 2
 
 
+def test_api_docs_are_served():
+    client = TestClient(app)
+    assert client.get("/api/docs").status_code == 200
+    assert client.get("/api/redoc").status_code == 200
+    spec = client.get("/api/openapi.json").json()
+    assert spec["info"]["title"] == "ChatGPT Usage Dashboard API"
+    assert {"/api/dashboard", "/api/triage", "/api/import", "/api/individual", "/api/me", "/health"} <= set(spec["paths"])
+    assert spec["paths"]["/api/triage"]["get"]["tags"] == ["insights"]
+
+
 def test_detectors_endpoint_lists_configured_detectors():
     response = TestClient(app).get("/api/detectors")
     assert response.status_code == 200

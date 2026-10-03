@@ -63,6 +63,8 @@ def test_google_mode_requires_login(google_app):
     page = client.get("/insights")
     assert page.status_code == 302 and page.headers["location"] == "/login"  # the React app's login page
     assert client.get("/api/dashboard").status_code == 401
+    docs = client.get("/api/docs")
+    assert docs.status_code == 302 and docs.headers["location"] == "/login"  # docs are a page: send people to login
     assert client.get("/api/me").json() == {"auth": "google", "user": None, "domains": ["haw.co.jp", "chaintope.com"]}
 
 
@@ -101,6 +103,7 @@ def test_callback_accepts_company_account_and_rejects_others(google_app, monkeyp
     assert ok.status_code == 302 and ok.headers["location"] == "/insights"
     assert client.get("/api/me").json()["user"] == {"email": "taro@haw.co.jp", "name": "Taro", "picture": "p"}
     assert client.get("/api/dashboard").status_code == 200
+    assert client.get("/api/docs").status_code == 200
 
     out = client.get("/logout")
     assert out.status_code == 302 and out.headers["location"] == "/login?logged_out=1"

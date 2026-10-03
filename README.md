@@ -5,7 +5,7 @@ ChatGPT管理画面から出力した集計JSONをアップロードし、ワー
 ## 構成
 
 - `frontend/`: 画面（React + TypeScript + MUI + ECharts、Vite）。本番では S3 + CloudFront から配信します。
-- `app/`: API（FastAPI）。取込・保存・判定・ログインだけを担当し、画面は配信しません（`FRONTEND_DIST` を指定した場合のみビルド済みの画面を同じコンテナから配信）。
+- `app/`: API（FastAPI）。取込・保存・判定・ログインだけを担当し、画面は配信しません。API ドキュメントは http://localhost:8000/api/docs（Swagger UI）と `/api/redoc`、仕様は `/api/openapi.json`（ログイン必須モードでは社内アカウントでのログイン後に閲覧可）（`FRONTEND_DIST` を指定した場合のみビルド済みの画面を同じコンテナから配信）。
 - `config/detectors.toml`、`plugins/`: 判定の設定と独自検知器。
 - `infra/terraform/`: 本番環境（AWS）。
 

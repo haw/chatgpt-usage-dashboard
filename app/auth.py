@@ -21,6 +21,7 @@ from app.config import Settings
 
 GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
 PUBLIC_PATHS = {"/health", "/login", "/login/google", "/auth/callback", "/logout", "/api/me"}
+DOCS_PATHS = {"/api/docs", "/api/redoc", "/api/openapi.json"}  # pages for people: redirect to login instead of 401
 SESSION_USER = "user"
 
 
@@ -44,7 +45,7 @@ class RequireLogin(BaseHTTPMiddleware):
         path = request.url.path
         if path in PUBLIC_PATHS or path.startswith("/static/") or request.session.get(SESSION_USER):
             return await call_next(request)
-        if path.startswith("/api/"):
+        if path.startswith("/api/") and path not in DOCS_PATHS:
             return JSONResponse({"detail": "ログインが必要です"}, status_code=401)
         request.session["next"] = path
         return RedirectResponse("/login", status_code=302)
@@ -53,7 +54,7 @@ class RequireLogin(BaseHTTPMiddleware):
 def install(app: FastAPI, settings: Settings) -> OAuth | None:
     """Wire the login routes and middleware; returns the OAuth registry for tests to patch."""
     if settings.auth_mode != "google":
-        @app.get("/api/me")
+        @app.get("/api/me", tags=["auth"], summary="ログイン状態")
         def me_anonymous() -> dict:
             return {"auth": "none", "user": None, "domains": []}
         return None
@@ -100,7 +101,7 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
         request.session.clear()
         return RedirectResponse("/login?logged_out=1", status_code=302)
 
-    @app.get("/api/me")
+    @app.get("/api/me", tags=["auth"], summary="ログイン状態と許可ドメイン")
     def me(request: Request) -> dict:
         return {"auth": "google", "user": current_user(request), "domains": list(domains)}
 

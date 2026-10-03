@@ -127,7 +127,8 @@ data/
 - `GET /api/context`: `date` の前後（既定 35日前〜7日後）の日次行を区分つきで返す。観点ごとの小グラフに使う。
 - `POST /api/dispositions`: JSON `{date, kind}`（kind は checked / cleared）を受け取り確認済みの記録を追記保存する。不正な値はHTTP 400。
 - `GET /health`: ヘルスチェックを返す。
-- 画面のパス: `/`（推移、`/trends` も可）、`/insights`、`/insights/{date}`（その日の観点パネルを開いた状態）、`/individual`、`/settings`。いずれも同じページを返し、クライアントが History API でビューを切り替えるため、ブラウザの戻る・進むとディープリンクが使える。ダイアログは外側のクリックと Esc で閉じる。
+- API ドキュメント: `GET /api/docs`（Swagger UI）、`GET /api/redoc`、`GET /api/openapi.json`。ログイン必須モードでは未ログイン時に `/login` へ転送する。
+- 画面のパス（React 側）: `/`（推移）、`/insights`、`/insights/{date}`（その日の観点パネルを開いた状態）、`/individual`、`/settings`、`/login`。ブラウザの戻る・進むとディープリンクが使える。
 - `POST /api/individual/import`: ユーザー識別子と個人別トークンJSONを取り込む。
 - `GET /api/individual`: ユーザー一覧と選択ユーザーの集計を返す。`holidays`・`workdays`・`sensitivity` を受け付ける。
 - `GET /api/individual/imports`: 個人別JSONの保存履歴を返す（以前のCSV履歴も含む）。
