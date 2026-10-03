@@ -1,4 +1,4 @@
-.PHONY: build up down test logs clear-data
+.PHONY: build up down test logs clear-data tf aws
 
 build:
 	docker compose build
@@ -14,6 +14,15 @@ test:
 
 logs:
 	docker compose logs -f dashboard
+
+# Terraform / AWS CLI in the tools container, e.g.
+#   make tf ARGS="plan -var-file=envs/prod.tfvars"
+#   make aws ARGS="sts get-caller-identity"
+tf:
+	docker compose run --rm terraform terraform $(ARGS)
+
+aws:
+	docker compose run --rm terraform aws $(ARGS)
 
 # Deletes only the local ./data contents using the current host user's permissions.
 clear-data:

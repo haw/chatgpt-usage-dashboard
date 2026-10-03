@@ -41,6 +41,24 @@ services:
         condition: service_healthy
     init: true
 
+  # Terraform + AWS CLI (infra/terraform). Credentials come from the host's ~/.aws (SSO cache included):
+  #   docker compose run --rm terraform aws sso login --profile <profile> --no-browser
+  #   AWS_PROFILE=<profile> docker compose run --rm terraform terraform plan -var-file=envs/prod.tfvars
+  terraform:
+    build: ./infra/terraform
+    profiles: ["tools"]
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    working_dir: /workspace/infra/terraform
+    environment:
+      HOME: /home/tf
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
+      TF_IN_AUTOMATION: "1"
+    volumes:
+      - .:/workspace
+      - ${HOME}/.aws:/home/tf/.aws
+
   test:
     image: python:3.12-slim
     profiles: ["tools"]
