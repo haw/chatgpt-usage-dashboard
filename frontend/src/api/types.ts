@@ -104,7 +104,7 @@ export interface TriageEntry {
   facts: { kind: DayKind; kind_source: DayKindSource; max_dau: number | null; total_tokens: number | null }
   observations: TriageObservation[]
   disposition: { date: string; kind: string; recorded_at: string } | null
-  tier: 'today' | 'week' | 'checked'
+  tier: 'today' | 'week' | 'reference'
 }
 
 export interface TriageResponse {
@@ -122,7 +122,7 @@ export interface TriageResponse {
   }
   today: TriageEntry[]
   week: TriageEntry[]
-  checked: TriageEntry[]
+  reference: TriageEntry[]
   detector_errors: string[]
 }
 
