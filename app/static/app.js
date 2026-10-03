@@ -994,6 +994,12 @@ async function markDay(date, kind, button) {
   }
 }
 
+// Signed-in account (AUTH_MODE=google); hidden when the app runs without login.
+fetch('/api/me').then(r => r.ok ? r.json() : null).then(me => {
+  if (!me || !me.user) return;
+  document.querySelector('#account-email').textContent = me.user.email;
+  document.querySelector('#account').hidden = false;
+}).catch(() => {});
 renderSensitivity();
 renderDayOverrideList();
 renderAiPreference();
