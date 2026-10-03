@@ -79,7 +79,7 @@
 ## AWS化
 
 - [x] S3ストレージアダプターを追加する
-- [x] Terraform の土台（S3 backend、データバケット、GitHub OIDC デプロイロール）と判断事項の文書（docs/INFRA.md）を用意する
+- [x] Terraform の土台（S3 backend、データバケット、GitHub OIDC デプロイロール）と判断事項の文書（infra/terraform/README.md）を用意する
 - [ ] 実行基盤（App Runner / ECS Fargate / Lambda）を決めてモジュール化する
 - [ ] 認証（Cognito）と入口（ドメイン・証明書）を構成する
 - [ ] GitHub Actions でイメージを ECR に push し、承認付きで本番へデプロイする

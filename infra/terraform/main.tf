@@ -4,7 +4,7 @@
 # the data bucket the app writes to (STORAGE_BACKEND=s3) and the GitHub OIDC
 # deploy role. The runtime (where the container runs), the entry point
 # (CloudFront / ALB) and authentication (Cognito) are added once the choices
-# in docs/INFRA.md are made; each will become its own module under modules/.
+# in README.md are made; each will become its own module under modules/.
 
 data "aws_caller_identity" "current" {}
 
