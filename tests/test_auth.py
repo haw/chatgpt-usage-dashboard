@@ -26,7 +26,7 @@ def google_app(tmp_path, monkeypatch):
     module = importlib.reload(web)
     yield module
     for key in GOOGLE_ENV:
-        monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv(key, "none" if key == "AUTH_MODE" else "")
     importlib.reload(web)  # back to AUTH_MODE=none for the other tests
 
 
@@ -60,8 +60,9 @@ def test_google_mode_requires_login(google_app):
 def test_google_mode_config_validation(monkeypatch):
     monkeypatch.setenv("AUTH_MODE", "google")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "x")
-    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("SESSION_SECRET", raising=False)
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "")  # empty, not unset: an unset var would be refilled from .env
+    monkeypatch.setenv("SESSION_SECRET", "")
+    monkeypatch.setenv("AUTH_ALLOWED_DOMAINS", "")
     from app.config import Settings
 
     with pytest.raises(ValueError, match="GOOGLE_CLIENT_SECRET, SESSION_SECRET"):
