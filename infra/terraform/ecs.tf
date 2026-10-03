@@ -1,115 +1,18 @@
-# The API as one Fargate task behind an existing, shared Application Load Balancer.
-#
-# Nothing new is paid for except the task: the ALB gets a certificate for the API's own host
-# name, a host-name listener rule and a target group. The rule also requires a secret header
-# that only CloudFront sends, so the API cannot be reached by going around the CDN.
-# The service runs exactly one task because imports rewrite the normalized files as a whole.
+# The API as one Fargate task. It has no load balancer: API Gateway reaches it through a VPC link
+# and finds it in Cloud Map (api_gateway.tf). The service runs exactly one task because imports
+# rewrite the normalized files as a whole.
 
-data "aws_lb" "shared" {
-  arn = var.shared_alb_arn
-}
-
-data "aws_lb_listener" "https" {
-  load_balancer_arn = var.shared_alb_arn
-  port              = 443
-}
-
+# CloudFront adds this secret to every API request and the API rejects requests without it,
+# so the public API Gateway endpoint cannot be used to go around the CDN.
 resource "random_password" "origin_verify" {
   length  = 32
   special = false
 }
 
-# --- Name and certificate for the API origin on the shared ALB ---------------
-
-resource "aws_route53_record" "api" {
-  zone_id = var.route53_zone_id
-  name    = var.api_hostname
-  type    = "A"
-
-  alias {
-    name                   = data.aws_lb.shared.dns_name
-    zone_id                = data.aws_lb.shared.zone_id
-    evaluate_target_health = false
-  }
-}
-
-resource "aws_acm_certificate" "api" {
-  domain_name       = var.api_hostname
-  validation_method = "DNS"
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_route53_record" "api_validation" {
-  for_each = {
-    for option in aws_acm_certificate.api.domain_validation_options : option.domain_name => {
-      name   = option.resource_record_name
-      record = option.resource_record_value
-      type   = option.resource_record_type
-    }
-  }
-
-  zone_id         = var.route53_zone_id
-  name            = each.value.name
-  type            = each.value.type
-  ttl             = 60
-  records         = [each.value.record]
-  allow_overwrite = true
-}
-
-resource "aws_acm_certificate_validation" "api" {
-  certificate_arn         = aws_acm_certificate.api.arn
-  validation_record_fqdns = [for record in aws_route53_record.api_validation : record.fqdn]
-}
-
-resource "aws_lb_listener_certificate" "api" {
-  listener_arn    = data.aws_lb_listener.https.arn
-  certificate_arn = aws_acm_certificate_validation.api.certificate_arn
-}
-
-# --- Target group and listener rule --------------------------------------------
-
-resource "aws_lb_target_group" "api" {
-  name        = substr("${local.name}-api", 0, 32)
-  port        = 8000
-  protocol    = "HTTP"
-  target_type = "ip"
-  vpc_id      = data.aws_lb.shared.vpc_id
-
-  health_check {
-    path                = "/health"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 3
-    matcher             = "200"
-  }
-
-  deregistration_delay = 10
-}
-
-resource "aws_lb_listener_rule" "api" {
-  listener_arn = data.aws_lb_listener.https.arn
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.api.arn
-  }
-
-  condition {
-    host_header {
-      values = [var.api_hostname]
-    }
-  }
-
-  condition {
-    http_header {
-      http_header_name = "x-origin-verify"
-      values           = [random_password.origin_verify.result]
-    }
-  }
+resource "aws_ssm_parameter" "origin_verify" {
+  name  = "${local.ssm_prefix}/ORIGIN_VERIFY_SECRET"
+  type  = "SecureString"
+  value = random_password.origin_verify.result
 }
 
 # --- ECS: cluster, roles, task definition, service -----------------------------
@@ -149,7 +52,7 @@ data "aws_iam_policy_document" "execution_secrets" {
   statement {
     effect    = "Allow"
     actions   = ["ssm:GetParameters", "ssm:GetParameter"]
-    resources = [for p in aws_ssm_parameter.secret : p.arn]
+    resources = concat([for p in aws_ssm_parameter.secret : p.arn], [aws_ssm_parameter.origin_verify.arn])
   }
 }
 
@@ -191,20 +94,17 @@ resource "aws_iam_role_policy" "task" {
   policy = data.aws_iam_policy_document.task.json
 }
 
-# Only the shared ALB may talk to the task.
+# Only API Gateway's VPC link may talk to the task.
 resource "aws_security_group" "task" {
-  name        = "${local.name}-api-task"
-  description = "API task: ingress from the shared ALB only"
-  vpc_id      = data.aws_lb.shared.vpc_id
+  name        = "${local.name}-api"
+  description = "API task: ingress from the API Gateway VPC link only"
+  vpc_id      = var.vpc_id
 
-  dynamic "ingress" {
-    for_each = data.aws_lb.shared.security_groups
-    content {
-      from_port       = 8000
-      to_port         = 8000
-      protocol        = "tcp"
-      security_groups = [ingress.value]
-    }
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.vpc_link.id]
   }
 
   egress {
@@ -212,6 +112,11 @@ resource "aws_security_group" "task" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # A changed name or description replaces the group; the running task must move to the new one first.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -238,9 +143,12 @@ resource "aws_ecs_task_definition" "api" {
       AUTH_MODE            = "google"
       AUTH_ALLOWED_DOMAINS = join(",", var.auth_allowed_domains)
       SESSION_SECURE       = "true"
-      # BASE_URL stays unset: the CloudFront function forwards the public host in X-Forwarded-Host.
+      BASE_URL             = local.dashboard_url # the public address; OAuth callbacks point back here
     } : { name = name, value = value }]
-    secrets = [for name, p in aws_ssm_parameter.secret : { name = name, valueFrom = p.arn }]
+    secrets = concat(
+      [for name, p in aws_ssm_parameter.secret : { name = name, valueFrom = p.arn }],
+      [{ name = "ORIGIN_VERIFY_SECRET", valueFrom = aws_ssm_parameter.origin_verify.arn }],
+    )
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -269,20 +177,19 @@ resource "aws_ecs_service" "api" {
   # Replace the single task in place (brief downtime) rather than run two at once.
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 100
-  health_check_grace_period_seconds  = 60
   force_new_deployment               = true
 
   network_configuration {
-    subnets          = length(var.task_subnet_ids) > 0 ? var.task_subnet_ids : tolist(data.aws_lb.shared.subnets)
+    subnets          = var.task_subnet_ids
     security_groups  = [aws_security_group.task.id]
-    assign_public_ip = true # the ALB's public subnets, no NAT; ingress is still limited to the ALB
+    assign_public_ip = true # public subnets, no NAT; ingress is still limited to the VPC link
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.api.arn
-    container_name   = "api"
-    container_port   = 8000
+  # Registers the task's address and port in Cloud Map, where API Gateway looks it up.
+  service_registries {
+    registry_arn = aws_service_discovery_service.api.arn
+    port         = 8000
   }
 
-  depends_on = [aws_lb_listener_rule.api, aws_iam_role_policy_attachment.execution, aws_iam_role_policy.execution_secrets, aws_iam_role_policy.task]
+  depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.execution_secrets, aws_iam_role_policy.task]
 }

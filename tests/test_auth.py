@@ -126,3 +126,20 @@ def test_login_redirects_to_google_with_hosted_domain(google_app, monkeypatch):
     # Behind CloudFront the public host arrives in X-Forwarded-Host (set by the viewer-request function).
     forwarded = client.get("/login/google", headers={"x-forwarded-host": "dashboard.example.com", "x-forwarded-proto": "https"})
     assert "redirect_uri=https://dashboard.example.com/auth/callback" in forwarded.headers["location"]
+
+
+def test_origin_secret_rejects_requests_that_bypass_the_cdn(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ORIGIN_VERIFY_SECRET", "cdn-secret")
+    import app.web as web
+
+    module = importlib.reload(web)
+    try:
+        client = TestClient(module.app)
+        assert client.get("/health").status_code == 200  # the container's own health check has no header
+        assert client.get("/api/dashboard").status_code == 403
+        assert client.get("/api/me", headers={"x-origin-verify": "wrong"}).status_code == 403
+        assert client.get("/api/dashboard", headers={"x-origin-verify": "cdn-secret"}).status_code == 200
+    finally:
+        monkeypatch.setenv("ORIGIN_VERIFY_SECRET", "")
+        importlib.reload(web)

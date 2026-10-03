@@ -42,9 +42,7 @@ resource "aws_s3_bucket_policy" "frontend" {
   policy = data.aws_iam_policy_document.frontend_bucket.json
 }
 
-# Viewer-request functions:
-#  - spa: paths without a file extension are the React router's; serve index.html.
-#  - api: tell the API which public host the viewer used, so OAuth callbacks point back here.
+# Viewer-request function: paths without a file extension are the React router's; serve index.html.
 resource "aws_cloudfront_function" "spa" {
   name    = "${local.name}-spa"
   runtime = "cloudfront-js-2.0"
@@ -56,20 +54,6 @@ resource "aws_cloudfront_function" "spa" {
       if (uri.endsWith('/') || !uri.split('/').pop().includes('.')) {
         request.uri = '/index.html';
       }
-      return request;
-    }
-  JS
-}
-
-resource "aws_cloudfront_function" "api" {
-  name    = "${local.name}-api"
-  runtime = "cloudfront-js-2.0"
-  publish = true
-  code    = <<-JS
-    function handler(event) {
-      var request = event.request;
-      request.headers['x-forwarded-host'] = { value: request.headers.host.value };
-      request.headers['x-forwarded-proto'] = { value: 'https' };
       return request;
     }
   JS
@@ -89,7 +73,8 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 }
 
 locals {
-  use_domain = var.domain_name != ""
+  use_domain    = var.domain_name != ""
+  dashboard_url = local.use_domain ? "https://${var.domain_name}" : "https://${aws_cloudfront_distribution.dashboard.domain_name}"
 }
 
 resource "aws_cloudfront_distribution" "dashboard" {
@@ -109,14 +94,14 @@ resource "aws_cloudfront_distribution" "dashboard" {
 
   origin {
     origin_id   = "api"
-    domain_name = var.api_hostname
+    domain_name = replace(aws_apigatewayv2_api.api.api_endpoint, "https://", "")
     custom_origin_config {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
-    # Only requests that came through CloudFront carry this header; the ALB rule requires it.
+    # Only requests that came through CloudFront carry this header; the API requires it.
     custom_header {
       name  = "x-origin-verify"
       value = random_password.origin_verify.result
@@ -148,11 +133,6 @@ resource "aws_cloudfront_distribution" "dashboard" {
       compress                 = true
       cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
       origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
-
-      function_association {
-        event_type   = "viewer-request"
-        function_arn = aws_cloudfront_function.api.arn
-      }
     }
   }
 

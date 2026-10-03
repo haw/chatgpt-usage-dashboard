@@ -1,11 +1,11 @@
 output "dashboard_url" {
   description = "Where people open the dashboard."
-  value       = local.use_domain ? "https://${var.domain_name}" : "https://${aws_cloudfront_distribution.dashboard.domain_name}"
+  value       = local.dashboard_url
 }
 
 output "oauth_redirect_uri" {
   description = "Register this in the Google Cloud OAuth client as an authorized redirect URI."
-  value       = "${local.use_domain ? "https://${var.domain_name}" : "https://${aws_cloudfront_distribution.dashboard.domain_name}"}/auth/callback"
+  value       = "${local.dashboard_url}/auth/callback"
 }
 
 output "data_bucket" {
@@ -29,8 +29,8 @@ output "ecr_repository" {
 }
 
 output "api_origin" {
-  description = "Host name CloudFront uses for the API on the shared ALB (not used by people; direct requests are rejected)."
-  value       = "https://${var.api_hostname}"
+  description = "API Gateway endpoint CloudFront uses for the API (not used by people; direct requests are rejected)."
+  value       = aws_apigatewayv2_api.api.api_endpoint
 }
 
 output "ecs_service" {

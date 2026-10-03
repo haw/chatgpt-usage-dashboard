@@ -24,6 +24,7 @@ class Settings:
     base_url: str = ""
     session_secure: bool = False
     frontend_dist: Path | None = None
+    origin_verify_secret: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -63,4 +64,5 @@ class Settings:
             base_url=base_url,
             session_secure=session_secure,
             frontend_dist=Path(frontend_dist) if frontend_dist else None,
+            origin_verify_secret=os.getenv("ORIGIN_VERIFY_SECRET", "").strip(),
         )

@@ -8,6 +8,7 @@ development) nothing here is installed and every route stays open.
 """
 from __future__ import annotations
 
+import hmac
 from typing import Any
 from urllib.parse import urlencode
 
@@ -36,6 +37,23 @@ def current_user(request: Request) -> dict[str, Any] | None:
         return request.session.get(SESSION_USER)
     except AssertionError:  # SessionMiddleware not installed (AUTH_MODE=none)
         return None
+
+
+def install_origin_check(app: FastAPI, secret: str) -> None:
+    """Accept only requests that came through the CDN, which adds this secret header.
+
+    In production the API sits behind a public API Gateway endpoint; without this check it could be
+    reached by going around CloudFront. /health stays open: the container checks itself on localhost.
+    """
+    if not secret:
+        return
+
+    @app.middleware("http")
+    async def require_origin_secret(request: Request, call_next):
+        sent = request.headers.get("x-origin-verify", "")
+        if request.url.path != "/health" and not hmac.compare_digest(sent.encode(), secret.encode()):
+            return JSONResponse({"detail": "Forbidden"}, status_code=403)
+        return await call_next(request)
 
 
 class RequireLogin(BaseHTTPMiddleware):

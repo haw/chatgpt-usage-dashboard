@@ -56,21 +56,14 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "shared_alb_arn" {
-  description = "Existing internet-facing Application Load Balancer the API rides on (its HTTPS listener gets a host-name rule)."
+variable "vpc_id" {
+  description = "VPC the API task and the API Gateway VPC link live in."
   type        = string
 }
 
 variable "task_subnet_ids" {
-  description = "Subnets for the Fargate task, in the ALB's VPC. Empty uses the ALB's own (public) subnets, which avoids NAT costs; the task gets a public IP but only the ALB may reach it."
+  description = "Subnets (in vpc_id, at least two availability zones) for the Fargate task and the VPC link. Public subnets avoid NAT costs: the task gets a public IP for outbound calls, but only the VPC link may reach it."
   type        = list(string)
-  default     = []
-}
-
-variable "api_hostname" {
-  description = "Host name CloudFront uses to reach the API through the shared ALB; a record in route53_zone_id and an ACM certificate are created for it."
-  type        = string
-  default     = "api.chatgpt-dashboard.dev.haw.biz"
 }
 
 variable "ecs_cpu" {

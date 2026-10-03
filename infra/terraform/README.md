@@ -6,7 +6,7 @@
 
 ```
 利用者 ── HTTPS ── CloudFront（*.cloudfront.net または独自ドメイン）
-                   ├─ /api/*, /login/google, /auth/*, /logout, /health → 既存 ALB（相乗り）→ Fargate タスク 1（API、ECR の画像）
+                   ├─ /api/*, /login/google, /auth/*, /logout, /health → API Gateway（HTTP API）→ VPC リンク → Fargate タスク 1（API、ECR の画像）
                    └─ それ以外（React の画面）                          → S3（ビルド成果物、OAC で非公開）
 API の環境変数: STORAGE_BACKEND=s3 / AUTH_MODE=google / 許可ドメイン / SESSION_SECURE
 シークレット（Google OAuth の ID・Secret、セッション鍵）: SSM Parameter Store（SecureString）
@@ -20,34 +20,38 @@ API の環境変数: STORAGE_BACKEND=s3 / AUTH_MODE=google / 許可ドメイン 
 | 配信: GitHub への接続（CodeConnections）、CodeBuild プロジェクトと push の Webhook、その実行ロール（ECR push / S3 同期 / CloudFront 無効化 / ECS サービス更新）、ビルドログ | `cicd.tf` |
 | ECR リポジトリ（直近 10 画像を保持） | `ecr.tf` |
 | SSM Parameter Store のシークレット 3 つ（値は Terraform 管理外） | `secrets.tf` |
-| 既存 ALB への相乗り（API 用ホスト名の Route53 レコードと ACM 証明書をリスナーに追加、ホスト名＋秘密ヘッダーのリスナールール、ターゲットグループ）、ECS クラスター、タスク定義、サービス（0.25 vCPU / 0.5 GB の Fargate タスク 1 固定、`/health`、ログ保持 90 日）、実行・タスクロール、タスクの SG | `ecs.tf` |
+| API Gateway（HTTP API、既定ルートを API へ転送、流量制限）、VPC リンクとその SG、Cloud Map（タスクの居場所の登録） | `api_gateway.tf` |
+| ECS クラスター、タスク定義、サービス（0.25 vCPU / 0.5 GB の Fargate タスク 1 固定、コンテナのヘルスチェック `/health`、ログ保持 90 日）、実行・タスクロール、タスクの SG、CloudFront だけが知る秘密ヘッダーの値 | `ecs.tf` |
 | 画面用 S3 バケット、CloudFront（2 オリジン、API パスはキャッシュなし、SPA 用と転送ヘッダ用の CloudFront Functions） | `frontend.tf` |
 | 独自ドメイン（任意）: ACM 証明書（us-east-1、DNS 検証）と Route53 の別名レコード | `domain.tf` |
 
-管理しないもの: 相乗り先の ALB 本体と VPC・サブネット（`shared_alb_arn` で指定した ALB から VPC・サブネット・SG を読み取る）、GitHub 接続の承認（コンソールで 1 回）、Google Cloud の OAuth クライアント、ローカル開発環境（Docker Compose）。
+管理しないもの: VPC とサブネット（`vpc_id`・`task_subnet_ids` で既存のものを指定）、GitHub 接続の承認（コンソールで 1 回）、Google Cloud の OAuth クライアント、ローカル開発環境（Docker Compose）。ロードバランサーは使いません。
 
 ### 実行基盤の選び方
 - App Runner は 2026 年 3 月末にメンテナンスモード入りが発表され、4 月 30 日以降は新規顧客が利用できないため使いません。
-- AWS の後継案内は ECS Express Mode ですが、Express 同士でしか ALB を共有できず ALB の固定費（月 $18〜20）が乗ります。費用を抑えるため、**既存の ALB に相乗りする標準の ECS Fargate サービス**にしました。追加費用は Fargate 1 タスク分だけです。
-- ALB に足すのは、API 用ホスト名（`api_hostname`）の証明書（ACM、無料、DNS 検証）、そのホスト名と秘密ヘッダー（CloudFront だけが付ける `x-origin-verify`）で振り分けるリスナールール、ターゲットグループの 3 つです。既存のルールには触れません。
+- AWS の後継案内は ECS Express Mode ですが、ALB の固定費（月 $18〜20）が乗ります。
+- 社内の共有 ALB への相乗りも試しましたが、接続元が限定されていて CloudFront から届きません。制限を緩めると同じ ALB に乗る他のアプリの防御も弱まるため、使わないことにしました。
+- そこで **API Gateway（HTTP API）から VPC リンク経由で Fargate タスクに直接つなぐ**形にしました。ロードバランサーが不要で、API Gateway はリクエスト数課金（$1.29 / 100 万件）なので、この規模では月数円〜数十円です。タスクの居場所は Cloud Map に登録され、API Gateway がそこを引きます。
+- API Gateway の制約: リクエスト本体は 10MB まで（アプリの上限は 5MB）、応答は 30 秒まで。
 
 ### 証明書について
-- CloudFront は既定ドメイン（`*.cloudfront.net`）なら AWS 管理の証明書付きです。独自ドメインと、ALB 上の API 用ホスト名には ACM 証明書を使います。
+- CloudFront は既定ドメイン（`*.cloudfront.net`）なら AWS 管理の証明書付きです。API Gateway のエンドポイントも AWS 管理の証明書付きなので、API 側で証明書を用意する必要はありません。
 - 独自ドメイン（`domain_name` と `route53_zone_id` を指定）のときだけ ACM 証明書を発行します。無料で、Route53 の DNS 検証により自動で発行・更新されます。
 
 ### 設計上の要点
 - **タスクは 1 つ**: 正規化データは取込時に全体を書き戻す方式のため、`desired_count = 1` とし、デプロイ時も 2 タスクが同時に動かないよう「止めてから起動」（最小 0% / 最大 100%）にしています。入れ替え中は数十秒ほど API が応答しません。
 - **画像の更新**: タスク定義は `latest` を参照し、CodeBuild が push 後に `update-service --force-new-deployment` で入れ替えます。
-- **ALB を迂回できない**: リスナールールは CloudFront が付ける秘密ヘッダーを要求するため、ALB のホスト名を直接叩いても API には届きません。タスクの SG も ALB の SG からの 8000 番しか許可しません。
-- **NAT なし**: タスクはパブリックサブネットでパブリック IP を持ち、ECR・SSM・ログへの到達に NAT を使いません（受信は ALB からのみ）。
-- **同一オリジン**: 画面と API を同じ CloudFront ドメインで配信するので、セッション Cookie と OAuth のリダイレクトは開発時と同じ仕組みで動きます。CloudFront Function が `X-Forwarded-Host` / `X-Forwarded-Proto` を API に渡し、API はそれからコールバック URL を組み立てます（`BASE_URL` は不要）。
+- **CloudFront を迂回できない**: API Gateway のエンドポイント自体は公開されていますが、CloudFront がリクエストに付ける秘密ヘッダー（`x-origin-verify`）を API が照合し、付いていないリクエストは 403 で拒否します（`ORIGIN_VERIFY_SECRET`。`/health` だけは対象外）。タスクの SG も VPC リンクからの 8000 番しか許可しません。
+- **NAT なし**: タスクはパブリックサブネットでパブリック IP を持ち、ECR・SSM・ログへの到達に NAT を使いません（受信は VPC リンクからのみ）。
+- **同一オリジン**: 画面と API を同じ CloudFront ドメインで配信するので、セッション Cookie と OAuth のリダイレクトは開発時と同じ仕組みで動きます。API には公開 URL を `BASE_URL` として渡し、OAuth のコールバック URL はそこから作ります。
+- **公開範囲**: 社外からも開けます。守りは Google ログイン（許可ドメイン限定）です。API Gateway には流量制限（毎秒 50 件）を掛けています。
 - **SPA のパス**: 拡張子のないパス（`/insights/2026-09-22` など）は CloudFront Function が `index.html` に書き換えます。API パスには適用しません。
 - **キャッシュ**: ハッシュ付きの `assets/*` は 1 年、`index.html` は `no-cache`。API はキャッシュしません。
 
 ## 前提
 
 - Docker と Docker Compose だけ。Terraform と AWS CLI はホストに入れず、専用コンテナ（`terraform` サービス。Terraform 1.13.4 + AWS CLI v2、[Dockerfile](Dockerfile)）で実行します。
-- HAW の AWS アカウント（ALB のあるアカウント）の IAM ユーザーのアクセスキー。キーはこのコンテナ専用の Docker ボリューム（`aws_credentials`）だけに保存します。ホストの `~/.aws` はマウントしないので、ホスト側にキーは残らず、コンテナからホストの他のプロファイルも見えません。リポジトリ内のファイル（`.env`、`*.tfvars` など）には書かないでください。
+- HAW の AWS アカウントの IAM ユーザーのアクセスキー。キーはこのコンテナ専用の Docker ボリューム（`aws_credentials`）だけに保存します。ホストの `~/.aws` はマウントしないので、ホスト側にキーは残らず、コンテナからホストの他のプロファイルも見えません。リポジトリ内のファイル（`.env`、`*.tfvars` など）には書かないでください。
 - state 用 S3 バケットは `make tf-bootstrap` が作ります（「初回だけ行うこと」参照）。
 - GitHub の `haw` 組織に AWS の連携アプリ（AWS Connector for GitHub）を入れられる権限（組織のオーナー）。初回の接続承認で 1 回だけ使います。
 
@@ -78,7 +82,7 @@ Terraform と AWS CLI はすべて `make` 経由で、コンテナの中で実�
 ## 使い方
 
 ```bash
-cp infra/terraform/envs/prod.tfvars.example infra/terraform/envs/prod.tfvars   # 許可ドメイン、ドメイン、ALB などを編集
+cp infra/terraform/envs/prod.tfvars.example infra/terraform/envs/prod.tfvars   # 許可ドメイン、ドメイン、VPC・サブネットなどを編集
 make tf-init
 make tf-plan
 make tf-apply
@@ -90,7 +94,7 @@ make tf-output
 1. **コンテナと認証**: `make tf-build`、`make aws-configure`、`make aws-whoami` でアカウントを確認。
 2. **state バケット**を作る: `make tf-bootstrap`。このプロジェクト専用のバケット `chatgpt-usage-dashboard-terraform-state-<アカウント ID>`（バージョニング・暗号化・パブリックアクセスブロック・TLS 必須）を [bootstrap/](bootstrap/main.tf) の Terraform で作り、`envs/prod.backend.hcl` を書き出します。作成内容が表示されるので `yes` で確定します。再実行しても変更は出ません。
    - bootstrap 自身の state はローカルの `bootstrap/terraform.tfstate`（git 管理外）です。なくしても `make tf ARGS="-chdir=bootstrap import aws_s3_bucket.state <バケット名>"` で戻せます。
-3. **設定ファイル**: `envs/prod.tfvars.example` を `envs/prod.tfvars` にコピーし、相乗り先の ALB `haw-dev-load-balancer`（`ken.haw.biz` や `*.dev.haw.biz` の各アプリが相乗りしている HTTPS:443 リスナー付きの ALB）の ARN などを記入。タスクは既定で ALB と同じサブネットを使うので、サブネットの指定は不要です。続けて `make tf-init`。
+3. **設定ファイル**: `envs/prod.tfvars.example` を `envs/prod.tfvars` にコピーし、ドメイン、ホストゾーン ID、タスクを置く VPC とパブリックサブネット（2 つ以上、別々のアベイラビリティゾーン）を記入。サブネットの調べ方は example のコメントにあります。続けて `make tf-init`。
 4. **ECR と GitHub 接続を先に作る**: `make tf-first-image`。ECS サービスは作成時に画像が必要なので、ECR と GitHub 接続だけ適用し（`yes` で確定）、ホストの `docker` で API の画像を作って 1 度 push します。以後は CodeBuild が push します。
 5. **GitHub 接続を承認**（コンソールでの手作業はここだけ）: AWS コンソールの「デベロッパー用ツール」→「設定」→「接続」で `chatgpt-dashboard-prod`（状態: 保留中）を開き、「保留中の接続を更新」→ GitHub の `haw` 組織に AWS Connector for GitHub を入れて（導入済みなら選んで）このリポジトリへのアクセスを許可します。状態が「利用可能」になれば完了です。確認: `make aws ARGS="codeconnections list-connections --query Connections[].[ConnectionName,ConnectionStatus] --output table"`。
    - 承認済みの接続がすでにあり、このリポジトリを読めるなら、`envs/prod.tfvars` の `github_connection_arn` にその ARN を書けばこの手順は不要です。
@@ -123,7 +127,21 @@ make tf-output
 - Terraform の `plan` / `apply` は CI では行いません。担当者が手元のコンテナから `make tf-plan` / `make tf-apply` で実行します。
 
 ## 費用の目安（東京、月額）
-Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM・ログは利用量が小さく合計 $1〜2。CodeBuild は 1 回数分のビルド時間分だけ（無料枠内か、超えても月数十円程度の見込み）。ALB は既存のものに相乗り（ルール・証明書は無料）、ACM 証明書も無料。合計 **約 $10〜11/月**。
+
+AWS の公開価格表（2026 年 10 月時点）での試算です。合計 **約 $15〜16/月**。
+
+| 項目 | 単価 | 月額 |
+|---|---|---|
+| Fargate 0.25 vCPU | $0.05056 / vCPU・時 | $9.23 |
+| Fargate メモリ 0.5 GB | $0.00553 / GB・時 | $2.02 |
+| パブリック IPv4 アドレス 1 個（タスク） | $0.005 / 時 | $3.65 |
+| Cloud Map（内部 DNS ゾーン $0.50、登録 $0.10、問い合わせ $1.00 / 100 万回） | | 約 $0.6〜0.7 |
+| API Gateway（HTTP API） | $1.29 / 100 万リクエスト | 月 10 万件で $0.13 |
+| CodeBuild（general1.small） | $0.005 / 分 | 1 回 4 分 × 20 回で $0.40（無料枠 月 100 分内なら $0） |
+| ECR（直近 10 画像、約 0.8GB） | $0.10 / GB | $0.08 |
+| CloudFront、S3、ログ、SSM、証明書、VPC リンク | 無料枠内または無料 | $0.05 未満 |
+
+1 か月は 730 時間で計算。費用の大半は常時動かすタスク（$14.90）で、利用量による部分は月 $1 前後です。
 
 ## 決定事項
 
@@ -131,7 +149,7 @@ Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM�
 |---|---|---|
 | IaC | Terraform。state は S3、ロックは `use_lockfile` | 要望 |
 | リージョン | ap-northeast-1 | 利用者が国内 |
-| 実行基盤 | 既存 ALB に相乗りする ECS Fargate（API）、S3 + CloudFront（画面） | 画面と API を分離。App Runner は新規利用不可、ECS Express Mode は ALB の固定費が乗るため |
+| 実行基盤 | ECS Fargate（API）を API Gateway + VPC リンクで公開、S3 + CloudFront（画面） | 画面と API を分離。App Runner は新規利用不可、ALB は固定費が高く、社内の共有 ALB は接続元が限定されていて CloudFront から届かない |
 | 認証 | アプリ内の Google Workspace OAuth（社内の TARO・KEN と同じ型）。シークレットは SSM | 社内実績あり |
 | ドメイン | `chatgpt-dashboard.dev.haw.biz`（`dev.haw.biz` は Route53 の委任済みゾーン） | 要望 |
 | デプロイ | アプリの配信は AWS CodeBuild が GitHub から取得して実行（main への push が契機）。インフラの `apply` は担当者が実行 | 公開リポジトリと GitHub 側に AWS の情報や権限を置かない |

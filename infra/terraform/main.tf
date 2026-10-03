@@ -1,10 +1,10 @@
 # Production infrastructure for the dashboard.
 #
-#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── shared ALB ── Fargate task (API image)
+#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── API Gateway ── Fargate task (API image)
 #                                   └── everything else ──────────────────────────────── S3 (built React app, private)
 #
 # This file holds what every piece shares: naming and the data bucket the API writes to.
-# See ecr.tf, ecs.tf, frontend.tf, secrets.tf, domain.tf and cicd.tf (the CodeBuild deploy).
+# See ecr.tf, ecs.tf, api_gateway.tf, frontend.tf, secrets.tf, domain.tf and cicd.tf (the CodeBuild deploy).
 
 data "aws_caller_identity" "current" {}
 
