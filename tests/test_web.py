@@ -74,6 +74,16 @@ def test_json_batch_accepts_different_periods_and_validates_before_saving(tmp_pa
     assert client.get("/api/imports").json()["imports"][0]["days"] == 2
 
 
+def test_api_docs_are_served():
+    client = TestClient(app)
+    assert client.get("/api/docs").status_code == 200
+    assert client.get("/api/redoc").status_code == 200
+    spec = client.get("/api/openapi.json").json()
+    assert spec["info"]["title"] == "ChatGPT Usage Dashboard API"
+    assert {"/api/dashboard", "/api/triage", "/api/import", "/api/individual", "/api/me", "/health"} <= set(spec["paths"])
+    assert spec["paths"]["/api/triage"]["get"]["tags"] == ["insights"]
+
+
 def test_detectors_endpoint_lists_configured_detectors():
     response = TestClient(app).get("/api/detectors")
     assert response.status_code == 200
@@ -124,34 +134,32 @@ def test_context_endpoint_returns_rows_around_a_date(tmp_path, monkeypatch):
     assert client.get("/api/context?date=bad").status_code == 422
 
 
-def test_every_view_path_serves_the_page():
+def test_backend_serves_no_pages_unless_a_built_frontend_is_configured(tmp_path, monkeypatch):
     client = TestClient(app)
-    for path in ("/", "/trends", "/insights", "/insights/2026-09-22", "/individual", "/settings"):
-        response = client.get(path)
-        assert response.status_code == 200, path
-        assert 'id="triage-tab"' in response.text
-    assert client.get("/nope").status_code == 404
+    assert client.get("/").status_code == 404
+    assert client.get("/insights").status_code == 404
+    # FRONTEND_DIST serves a built copy of the React app with SPA fallback (single-container deployments).
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><div id=root></div>")
+    (dist / "assets" / "app.js").write_text("console.log(1)")
+    monkeypatch.setenv("FRONTEND_DIST", str(dist))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    import importlib
 
+    import app.web as web
 
-def test_index_has_four_views():
-    response = TestClient(app).get("/")
-    assert response.status_code == 200
-    for view in ("triage", "workspace", "individual", "settings"):
-        assert f'id="{view}-tab"' in response.text
-    assert "インサイト" in response.text and "取込と設定" in response.text
-    assert 'id="context-dialog"' in response.text and 'id="ai-reading"' in response.text
-    assert 'id="triage-today"' in response.text and 'id="workspace-json-files"' in response.text
-    assert 'id="settings-dialog"' in response.text
-    assert 'id="individual-five-hour-hits"' in response.text
-    assert 'id="individual-weekly-hits"' in response.text
-    assert 'id="individual-weekly-table"' in response.text
-    assert "5時間枠消費率" in response.text
-    assert "週次枠消費率" in response.text
-    assert response.text.count('id="history-dialog"') == 1
-    assert 'id="history-table"' in response.text
-    assert 'id="individual-history-table"' in response.text
-    assert "全体データ" in response.text
-    assert "個人データ" in response.text
+    module = importlib.reload(web)
+    spa = TestClient(module.app)
+    try:
+        assert spa.get("/").text.startswith("<!doctype html>")
+        assert spa.get("/insights/2026-09-22").text.startswith("<!doctype html>")
+        assert spa.get("/assets/app.js").text == "console.log(1)"
+        assert spa.get("/api/nope").status_code == 404
+        assert spa.get("/health").json() == {"status": "ok"}
+    finally:
+        monkeypatch.delenv("FRONTEND_DIST")
+        importlib.reload(web)
 
 
 def test_import_endpoint(tmp_path, monkeypatch):

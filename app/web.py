@@ -17,25 +17,39 @@ from app.triage import DISPOSITION_KINDS, build_triage, checked_dates
 
 from app import auth
 
-STATIC_DIR = Path(__file__).parent / "static"
-app = FastAPI(title="ChatGPT Usage Dashboard", docs_url="/api/docs", redoc_url=None)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# The API only. The React app in frontend/ is served separately (Vite in development,
+# S3 + CloudFront in production); FRONTEND_DIST optionally serves a built copy from here.
+API_DESCRIPTION = """
+ChatGPT 管理画面から出力した日次集計 JSON を取り込み、平日/休日を区別した基準で「普段と違う日」を判定する API。
+画面（React）はこの API だけを使います。`AUTH_MODE=google` のときは `/health`・ログイン関連以外は社内 Google アカウントの
+セッション Cookie が必要です（この docs も同じ）。
+
+- 閲覧者ごとの設定は各リクエストのパラメータで渡します: `sensitivity`（0.25〜4、既定 1）、`holidays` / `workdays`（カンマ区切りの日付で区分を上書き）。
+- 判定の中身（検知器）は `config/detectors.toml` で設定し、`GET /api/detectors` で確認できます。
+"""
+TAGS = [
+    {"name": "dashboard", "description": "推移: 保存済みデータの集計、検出点、判定ライン"},
+    {"name": "insights", "description": "インサイト: 確認する日の順位付け、観点ごとの判定、確認済みの記録"},
+    {"name": "import", "description": "取込: 管理画面 JSON のアップロードと履歴"},
+    {"name": "individual", "description": "個人別: ユーザーを絞り込んだトークン JSON"},
+    {"name": "auth", "description": "ログイン状態（Google OIDC は /login/google から開始）"},
+    {"name": "ops", "description": "ヘルスチェックと設定"},
+]
+app = FastAPI(
+    title="ChatGPT Usage Dashboard API",
+    version="0.1.0",
+    description=API_DESCRIPTION,
+    openapi_tags=TAGS,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
+_settings = Settings.from_env()
 # AUTH_MODE=google installs Google OIDC login and protects every route; AUTH_MODE=none (default) leaves it open.
-oauth = auth.install(app, Settings.from_env())
+oauth = auth.install(app, _settings)
 
 
-@app.get("/", include_in_schema=False)
-@app.get("/trends", include_in_schema=False)
-@app.get("/insights", include_in_schema=False)
-@app.get("/insights/{day}", include_in_schema=False)
-@app.get("/individual", include_in_schema=False)
-@app.get("/settings", include_in_schema=False)
-def index(day: str | None = None) -> FileResponse:
-    """Every view has its own path; the page picks the view from the URL and uses the History API."""
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/health")
+@app.get("/health", tags=["ops"], summary="ヘルスチェック")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
@@ -59,7 +73,7 @@ def _day_overrides(holidays: str | None, workdays: str | None) -> dict[str, str]
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/dashboard")
+@app.get("/api/dashboard", tags=["dashboard"], summary="推移: 集計・検出点・判定ライン", description="保存済みの日次データを期間で絞り、KPI、日次行（区分つき）、検出シグナル、総トークンの分析系列、設定済み検知器を返します。")
 def dashboard(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
@@ -81,7 +95,7 @@ def dashboard(
     )
 
 
-@app.get("/api/triage")
+@app.get("/api/triage", tags=["insights"], summary="インサイト: 確認する日の順位表", description="反応した観点の数・その日に始まった変化か・初めてのパターンかで日を並べ、today / week / reference に分けて返します。感度には依存しません。")
 def triage(
     holidays: str | None = Query(default=None),
     workdays: str | None = Query(default=None),
@@ -94,7 +108,7 @@ def triage(
     )
 
 
-@app.get("/api/context")
+@app.get("/api/context", tags=["insights"], summary="指定日の前後の日次行（区分つき）", description="観点ごとの箱ひげ図・推移グラフのために、date の前後（既定 35 日前〜7 日後）の行を返します。")
 def context(
     date_: date = Query(alias="date"),
     before: int = Query(default=35, ge=1, le=120),
@@ -116,7 +130,7 @@ def context(
     return {"date": date_.isoformat(), "rows": window}
 
 
-@app.post("/api/dispositions")
+@app.post("/api/dispositions", tags=["insights"], summary="確認済みの記録", description="`{\"date\": \"YYYY-MM-DD\", \"kind\": \"checked\" | \"cleared\"}` を追記保存します。日付ごとに最新の記録が有効です。")
 def record_disposition(payload: dict = Body(...)) -> dict:
     """Mark a day as checked (or clear the mark) so it leaves the triage list."""
     try:
@@ -132,7 +146,7 @@ def record_disposition(payload: dict = Body(...)) -> dict:
     return {"disposition": disposition}
 
 
-@app.post("/api/dispositions/reset")
+@app.post("/api/dispositions/reset", tags=["insights"], summary="確認済みをすべて解除")
 def reset_dispositions() -> dict:
     """Clear every checked mark (the log stays append-only: one "cleared" record per date)."""
     storage = create_storage(Settings.from_env())
@@ -143,20 +157,20 @@ def reset_dispositions() -> dict:
     return {"cleared": days}
 
 
-@app.get("/api/detectors")
+@app.get("/api/detectors", tags=["ops"], summary="設定済み検知器の一覧と設定エラー")
 def detectors() -> dict:
     """List configured detectors (id, label, parameters) and configuration errors."""
     configured = default_detectors()
     return {"detectors": configured.describe(), "errors": configured.errors}
 
 
-@app.get("/api/imports")
+@app.get("/api/imports", tags=["import"], summary="全体データの取込履歴")
 def import_history() -> dict:
     storage = create_storage(Settings.from_env())
     return {"imports": storage.list_import_history()}
 
 
-@app.get("/api/individual")
+@app.get("/api/individual", tags=["individual"], summary="個人別: ユーザー一覧と選択ユーザーの集計")
 def individual_dashboard(
     user_id: str | None = Query(default=None),
     holidays: str | None = Query(default=None),
@@ -170,7 +184,7 @@ def individual_dashboard(
     )
 
 
-@app.get("/api/individual/imports")
+@app.get("/api/individual/imports", tags=["individual"], summary="個人別データの取込履歴")
 def individual_import_history() -> dict:
     storage = create_storage(Settings.from_env())
     return {"imports": storage.list_individual_import_history()}
@@ -179,7 +193,7 @@ def individual_import_history() -> dict:
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
-@app.post("/api/import")
+@app.post("/api/import", tags=["import"], summary="全体データの取込（JSON 1〜2 ファイル）", description="`files` に active-users / tokens の Analytics JSON を 1 つずつ、または 2 つまとめて指定します。各 JSON を独立して検証し、日付・指標ごとに保存済みデータへ統合します。")
 async def import_json(
     files: list[UploadFile] | None = File(default=None),
     active_users_file: UploadFile | None = File(default=None),
@@ -257,7 +271,7 @@ async def import_json(
                                      sensitivity=sensitivity_value)
 
 
-@app.post("/api/individual/import")
+@app.post("/api/individual/import", tags=["individual"], summary="個人別トークン JSON の取込", description="`user_label`（氏名またはメール）と、対象ユーザーで絞り込んだ tokens JSON を指定します。")
 async def import_individual_json(
     user_label: str = Form(...),
     tokens_file: UploadFile = File(...),
@@ -305,3 +319,21 @@ async def import_individual_json(
     storage.save_individual_import_state(state)
     return build_individual_dashboard(storage.load_individual_usage(), state, user_id, day_overrides=overrides,
                                       sensitivity=sensitivity_value)
+
+
+def serve_frontend(dist: Path) -> None:
+    """Serve a built copy of the React app with SPA fallback (single-container deployments)."""
+    app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        candidate = dist / path
+        if path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(dist / "index.html")
+
+
+if _settings.frontend_dist and _settings.frontend_dist.is_dir():
+    serve_frontend(_settings.frontend_dist)

@@ -21,19 +21,24 @@ services:
       timeout: 3s
       retries: 3
 
-  collector:
-    build: .
-    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
-    profiles: ["tools"]
-    env_file:
-      - path: .env
-        required: false
+  # React frontend (Vite dev server). API calls are proxied to the dashboard service;
+  # the Host header is passed through so the OAuth callback stays on localhost:5180.
+  # Runs as root: node_modules lives in a named volume, sources are read from the bind mount.
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
     environment:
-      DATA_DIR: /app/data
+      VITE_API_PROXY: http://dashboard:8000
+      npm_config_cache: /tmp/npm-cache
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "${FRONTEND_PORT:-5180}:5173"
     volumes:
-      - ./data:/app/data
-    entrypoint: ["python", "-m", "app"]
-    command: ["collect", "--days", "7"]
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      dashboard:
+        condition: service_healthy
     init: true
 
   test:
@@ -44,3 +49,6 @@ services:
       - .:/workspace:ro
     entrypoint: ["sh", "-c"]
     command: ["cp -a /workspace /tmp/project && cd /tmp/project && pip install --no-cache-dir '.[dev]' >/dev/null && pytest"]
+
+volumes:
+  frontend_node_modules:

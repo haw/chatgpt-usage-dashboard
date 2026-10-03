@@ -15,6 +15,13 @@
 - [x] ローカル `./data` のみを消去する確認付きMakeターゲットを追加する
 - [x] Dashboard・collectorコンテナを非root実行にし、ホストUID/GIDに合わせてローカルデータを保存する
 
+## React 化と API 専任化
+
+- [x] `frontend/`（Vite + React + TypeScript + MUI + ECharts）に全画面を移植する
+- [x] Docker Compose に `frontend` サービスを追加する
+- [x] バックエンドから画面配信・ログインページ・旧 Admin API 収集機能（collector）を削除し API 専任にする
+- [ ] Terraform に S3 + CloudFront（画面）と App Runner（API）を追加し、CI からデプロイする
+
 ## 異常検知の再設計
 
 - [x] 検知ロジックを `app/detectors` の登録制プラグインへ分離し、`config/detectors.toml` で有効化・パラメータ・独自モジュールを設定できるようにする

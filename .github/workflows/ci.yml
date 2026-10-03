@@ -20,3 +20,32 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest
       - run: docker build -t chatgpt-usage-dashboard:${{ github.sha }} .
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # The component tests talk to the real API: start it without login and load the synthetic fixtures.
+      - name: Start the API with fixture data
+        working-directory: .
+        run: |
+          pip install -e .
+          AUTH_MODE=none DATA_DIR=/tmp/ci-data uvicorn app.web:app --port 8001 &
+          for i in $(seq 1 30); do curl -sf localhost:8001/health && break; sleep 1; done
+          curl -sf -F files=@tests/fixtures/workspace-tokens-2026-09.json -F files=@tests/fixtures/workspace-active-users-2026-09.json localhost:8001/api/import > /dev/null
+      - run: BACKEND=http://localhost:8001 npm test
