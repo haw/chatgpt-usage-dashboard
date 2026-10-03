@@ -76,6 +76,17 @@ function reloadAll() {
   if (individualLoaded) loadIndividual(currentIndividualData?.selected_user?.user_id);
 }
 
+// A 401 from any API means the session is gone (expired, or logged out in another tab):
+// turn the header chip into a login link so the way back is obvious.
+function handleUnauthorized(response) {
+  if (response.status !== 401) return false;
+  document.querySelector('#account-email').textContent = '';
+  const link = document.querySelector('#account-link');
+  link.href = '/login'; link.textContent = 'ログイン';
+  document.querySelector('#account').hidden = false;
+  return true;
+}
+
 async function load(start, end) {
   try {
     currentPeriod = {start:start || null, end:end || null};
@@ -84,6 +95,7 @@ async function load(start, end) {
     if (end) query.set('end_date', end);
     const response = await fetch(`/api/dashboard${query.size ? `?${query}` : ''}`);
     const data = await response.json();
+    handleUnauthorized(response);
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     render(data);
   } catch (error) {
@@ -293,6 +305,7 @@ async function loadIndividual(userId) {
     if (userId) query.set('user_id', userId);
     const response = await fetch(`/api/individual${query.size ? `?${query}` : ''}`);
     const data = await response.json();
+    handleUnauthorized(response);
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     individualLoaded = true;
     renderIndividual(data);
@@ -563,6 +576,7 @@ async function loadTriage() {
     query.delete('sensitivity');
     const response = await fetch(`/api/triage${query.size ? `?${query}` : ''}`);
     const data = await response.json();
+    handleUnauthorized(response);
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
     renderTriage(data);
   } catch (error) {
