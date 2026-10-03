@@ -20,7 +20,14 @@ export interface AiPrompts {
   user: string
 }
 
+export interface Limits {
+  fiveHour: number
+  weekly: number
+}
+export const DEFAULT_LIMITS: Limits = { fiveHour: 26_300_000, weekly: 173_000_000 }
+
 const KEYS = {
+  limits: 'chatgpt-dashboard.limit-settings.v1',
   sensitivity: 'chatgpt-dashboard.sensitivity.v1',
   overrides: 'chatgpt-dashboard.day-overrides.v1',
   contextMode: 'chatgpt-dashboard.context-mode.v1',
@@ -87,6 +94,9 @@ export interface ViewerState {
   setContextMode: (mode: ContextMode) => void
   setAiModel: (model: AiModel) => void
   setAiPrompts: (prompts: AiPrompts) => boolean
+  /** Reference quota limits for the individual view (not official OpenAI numbers). */
+  limits: Limits
+  setLimits: (limits: Limits) => boolean
   /** Query parameters every data request carries: sensitivity and the holiday/workday overrides. */
   params: { sensitivity?: number; holidays?: string; workdays?: string }
 }
@@ -129,6 +139,21 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       { system: AI_DEFAULT_SYSTEM, user: AI_DEFAULT_USER },
     ),
   )
+
+  const [limits, setLimitsState] = useState<Limits>(() =>
+    read(
+      KEYS.limits,
+      (raw) => {
+        const saved = JSON.parse(raw)
+        return Number.isSafeInteger(saved?.fiveHour) && saved.fiveHour > 0 && Number.isSafeInteger(saved?.weekly) && saved.weekly > 0 ? { fiveHour: saved.fiveHour, weekly: saved.weekly } : null
+      },
+      DEFAULT_LIMITS,
+    ),
+  )
+  const setLimits = useCallback((next: Limits) => {
+    setLimitsState(next)
+    return write(KEYS.limits, next)
+  }, [])
 
   const setSensitivity = useCallback((value: number) => {
     const snapped = SENSITIVITY_STEPS[sensitivityIndex(value)].value
@@ -182,11 +207,11 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ViewerState>(
     () => ({
-      sensitivity, dayOverrides, contextMode, aiModel, aiPrompts,
-      setSensitivity, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts,
+      sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, limits,
+      setSensitivity, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, setLimits,
       params,
     }),
-    [sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, setSensitivity, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, params],
+    [sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, limits, setSensitivity, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, setLimits, params],
   )
   return <ViewerContext.Provider value={value}>{children}</ViewerContext.Provider>
 }
