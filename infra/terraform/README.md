@@ -46,7 +46,7 @@ GitHub Actions: main への push → API 画像を ECR へ push し ECS サー�
 ## 前提
 
 - Docker と Docker Compose だけ。Terraform と AWS CLI はホストに入れず、専用コンテナ（`terraform` サービス。Terraform 1.13.4 + AWS CLI v2、[Dockerfile](Dockerfile)）で実行します。
-- HAW の AWS アカウント（ALB のあるアカウント）の IAM ユーザーのアクセスキー。コンテナはホストの `~/.aws` をマウントするので、一度登録したプロファイルをホストと共有します。キーは `~/.aws/credentials` だけに置き、リポジトリ内のファイル（`.env`、`*.tfvars` など）には書かないでください。
+- HAW の AWS アカウント（ALB のあるアカウント）の IAM ユーザーのアクセスキー。キーはこのコンテナ専用の Docker ボリューム（`aws_credentials`）だけに保存します。ホストの `~/.aws` はマウントしないので、ホスト側にキーは残らず、コンテナからホストの他のプロファイルも見えません。リポジトリ内のファイル（`.env`、`*.tfvars` など）には書かないでください。
 - state 用 S3 バケットと GitHub OIDC プロバイダがアカウントに登録済み（「初回だけ行うこと」参照）。
 
 ## コンテナの使い方
@@ -55,13 +55,12 @@ GitHub Actions: main への push → API 画像を ECR へ push し ECS サー�
 
 ```bash
 docker compose build terraform                                   # 初回とバージョン更新時
-docker compose run --rm terraform aws configure --profile haw    # 初回だけ。アクセスキー ID / シークレット / リージョン ap-northeast-1 を入力（~/.aws に保存）
-export AWS_PROFILE=haw                                           # コンテナに渡される（プロファイル名は任意）
+docker compose run --rm terraform aws configure                  # 初回だけ。アクセスキー ID / シークレット / リージョン ap-northeast-1 を入力（ボリュームに保存）
 docker compose run --rm terraform aws sts get-caller-identity    # アカウントを確認
 docker compose run --rm terraform terraform version
 ```
 
-プロファイルを作らず、ホストの環境変数 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`（一時認証なら `AWS_SESSION_TOKEN` も）を export しておく方法でも動きます。コンテナにそのまま渡されます。
+キーを消すときは `docker volume rm chatgpt_dashboard_aws_credentials`（`docker compose down -v` でも消えます）。入れ替えるときは `aws configure` をもう一度実行します。
 
 短く書くなら `make tf ARGS="plan -var-file=envs/prod.tfvars"`、`make aws ARGS="sts get-caller-identity"`。以下では次の別名を使います。
 

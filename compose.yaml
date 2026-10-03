@@ -41,27 +41,28 @@ services:
         condition: service_healthy
     init: true
 
-  # Terraform + AWS CLI (infra/terraform). Credentials come from the host's ~/.aws (access-key profile)
-  # or from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the host environment:
-  #   docker compose run --rm terraform aws configure --profile <profile>     # once; writes ~/.aws/credentials
-  #   AWS_PROFILE=<profile> docker compose run --rm terraform terraform plan -var-file=envs/prod.tfvars
+  # Terraform + AWS CLI (infra/terraform). The AWS access key lives only in the `aws_credentials` volume,
+  # not in the host's ~/.aws, and the container cannot see the host's other AWS profiles:
+  #   docker compose run --rm terraform aws configure      # once; stored in the volume
+  #   docker compose run --rm terraform terraform plan -var-file=envs/prod.tfvars
   terraform:
-    build: ./infra/terraform
+    build:
+      context: ./infra/terraform
+      args:
+        UID: ${LOCAL_UID:-1000}
+        GID: ${LOCAL_GID:-1000}
     profiles: ["tools"]
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     working_dir: /workspace/infra/terraform
     environment:
       HOME: /home/tf
       AWS_PROFILE:
-      AWS_ACCESS_KEY_ID:
-      AWS_SECRET_ACCESS_KEY:
-      AWS_SESSION_TOKEN:
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
       AWS_DEFAULT_REGION: ${AWS_REGION:-ap-northeast-1}
       TF_IN_AUTOMATION: "1"
     volumes:
       - .:/workspace
-      - ${HOME}/.aws:/home/tf/.aws
+      - aws_credentials:/home/tf/.aws
 
   test:
     image: python:3.12-slim
@@ -74,3 +75,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  aws_credentials:
