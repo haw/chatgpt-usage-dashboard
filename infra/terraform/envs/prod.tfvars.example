@@ -10,7 +10,7 @@ domain_name     = "chatgpt-dashboard.dev.haw.biz"
 route53_zone_id = "" # aws route53 list-hosted-zones-by-name --dns-name dev.haw.biz --query 'HostedZones[0].Id'
 api_hostname    = "api.chatgpt-dashboard.dev.haw.biz"
 
-# Existing ALB the API shares, and subnets in its VPC for the Fargate task.
-shared_alb_arn  = "arn:aws:elasticloadbalancing:ap-northeast-1:<account>:loadbalancer/app/<name>/<id>"
-task_subnet_ids = ["subnet-xxxxxxxx", "subnet-yyyyyyyy"]
+# Existing ALB the API shares (haw-dev-load-balancer, the one ken.haw.biz and the dev.haw.biz apps ride on).
+# The task uses the ALB's own subnets unless task_subnet_ids is set.
+shared_alb_arn = "arn:aws:elasticloadbalancing:ap-northeast-1:<account>:loadbalancer/app/haw-dev-load-balancer/<id>"
 

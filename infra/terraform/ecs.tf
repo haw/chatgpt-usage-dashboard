@@ -273,9 +273,9 @@ resource "aws_ecs_service" "api" {
   force_new_deployment               = true
 
   network_configuration {
-    subnets          = var.task_subnet_ids
+    subnets          = length(var.task_subnet_ids) > 0 ? var.task_subnet_ids : tolist(data.aws_lb.shared.subnets)
     security_groups  = [aws_security_group.task.id]
-    assign_public_ip = true # public subnets, no NAT; ingress is still limited to the ALB
+    assign_public_ip = true # the ALB's public subnets, no NAT; ingress is still limited to the ALB
   }
 
   load_balancer {

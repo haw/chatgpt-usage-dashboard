@@ -23,7 +23,7 @@ GitHub Actions: main への push → API 画像を ECR へ push し ECS サー�
 | 画面用 S3 バケット、CloudFront（2 オリジン、API パスはキャッシュなし、SPA 用と転送ヘッダ用の CloudFront Functions） | `frontend.tf` |
 | 独自ドメイン（任意）: ACM 証明書（us-east-1、DNS 検証）と Route53 の別名レコード | `domain.tf` |
 
-管理しないもの: 相乗り先の ALB 本体と VPC・サブネット（既存のものを `shared_alb_arn` / `task_subnet_ids` で指定）、Terraform の state バケットと GitHub OIDC プロバイダ（1 回だけ手動で作成）、Google Cloud の OAuth クライアント、ローカル開発環境（Docker Compose）。
+管理しないもの: 相乗り先の ALB 本体と VPC・サブネット（`shared_alb_arn` で指定した ALB から VPC・サブネット・SG を読み取る）、Terraform の state バケットと GitHub OIDC プロバイダ（1 回だけ手動で作成）、Google Cloud の OAuth クライアント、ローカル開発環境（Docker Compose）。
 
 ### 実行基盤の選び方
 - App Runner は 2026 年 3 月末にメンテナンスモード入りが発表され、4 月 30 日以降は新規顧客が利用できないため使いません。
@@ -65,7 +65,7 @@ terraform output
 
 1. **state バケット**を作成（バージョニング有効、パブリックアクセスをブロック）し、`envs/prod.backend.hcl` に記入。
 2. **GitHub OIDC プロバイダ** `token.actions.githubusercontent.com` を IAM に登録（未登録なら）。
-3. **相乗り先の ALB とサブネットを確認**し `envs/prod.tfvars` に記入（`aws elbv2 describe-load-balancers`、`aws ec2 describe-subnets --filters Name=vpc-id,Values=<ALB の VPC>`）。ALB には HTTPS（443）リスナーが必要です。
+3. **相乗り先の ALB** `haw-dev-load-balancer`（`ken.haw.biz` や `*.dev.haw.biz` の各アプリが相乗りしている HTTPS:443 リスナー付きの ALB）の ARN を `envs/prod.tfvars` に記入。タスクは既定で ALB と同じサブネットを使うので、サブネットの指定は不要です。
 4. **ECR を先に作る**: ECS サービスは作成時に画像が必要なので、まず ECR だけ適用し、画像を 1 度 push します。
    ```bash
    terraform apply -var-file=envs/prod.tfvars -target=aws_ecr_repository.api -target=aws_iam_role.deploy

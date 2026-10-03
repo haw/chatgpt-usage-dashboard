@@ -16,3 +16,6 @@ infra/terraform/envs/*.backend.hcl
 *.tfstate
 *.tfstate.*
 tfplan
+# Saved AWS console pages used for reference
+docs/*.html
+docs/*_files/

@@ -50,8 +50,9 @@ variable "shared_alb_arn" {
 }
 
 variable "task_subnet_ids" {
-  description = "Subnets for the Fargate task, in the ALB's VPC. Public subnets avoid NAT costs (the task gets a public IP but only the ALB may reach it)."
+  description = "Subnets for the Fargate task, in the ALB's VPC. Empty uses the ALB's own (public) subnets, which avoids NAT costs; the task gets a public IP but only the ALB may reach it."
   type        = list(string)
+  default     = []
 }
 
 variable "api_hostname" {
