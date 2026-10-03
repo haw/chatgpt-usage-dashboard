@@ -31,3 +31,39 @@ variable "data_retention_days" {
   type        = number
   default     = 0
 }
+
+variable "auth_allowed_domains" {
+  description = "Google Workspace domains allowed to sign in (comma separated in the app)."
+  type        = list(string)
+  default     = ["haw.co.jp"]
+}
+
+variable "image_tag" {
+  description = "ECR image tag App Runner runs. CI pushes 'latest' and App Runner auto-deploys on each push."
+  type        = string
+  default     = "latest"
+}
+
+variable "apprunner_cpu" {
+  description = "App Runner instance CPU (the smallest size is plenty for a few analysts)."
+  type        = string
+  default     = "256"
+}
+
+variable "apprunner_memory" {
+  description = "App Runner instance memory in MB."
+  type        = string
+  default     = "512"
+}
+
+variable "domain_name" {
+  description = "Custom domain for the dashboard (e.g. chatgpt-usage.haw.biz). Empty uses the CloudFront domain."
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  description = "Hosted zone that owns domain_name; required when domain_name is set (ACM validation and the alias record)."
+  type        = string
+  default     = ""
+}

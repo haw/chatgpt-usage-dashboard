@@ -1,15 +1,17 @@
 # Production infrastructure for the dashboard.
 #
-# This first step only lays out the pieces that every runtime option needs:
-# the data bucket the app writes to (STORAGE_BACKEND=s3) and the GitHub OIDC
-# deploy role. The runtime (where the container runs), the entry point
-# (CloudFront / ALB) and authentication (Cognito) are added once the choices
-# in README.md are made; each will become its own module under modules/.
+#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── App Runner (API image from ECR)
+#                                   └── everything else ──────────────────────────────── S3 (built React app, private)
+#
+# This file holds what every piece shares: naming, the data bucket the API writes to
+# and the GitHub OIDC deploy role. See ecr.tf, apprunner.tf, frontend.tf, secrets.tf, domain.tf.
 
 data "aws_caller_identity" "current" {}
 
 locals {
   name = "${var.name_prefix}-${var.environment}"
+  # Paths CloudFront sends to the API; everything else is the React app.
+  api_paths = ["/api/*", "/login/google", "/auth/*", "/logout", "/health"]
 }
 
 # --- Data bucket: raw imports, normalized JSONL, state, dispositions -------
@@ -90,18 +92,51 @@ resource "aws_iam_role" "deploy" {
   assume_role_policy = data.aws_iam_policy_document.github_assume.json
 }
 
-# Permissions are attached per runtime module (ECR push, ECS deploy, ...);
-# the bucket policy below is the only one needed by every option.
-data "aws_iam_policy_document" "deploy_state" {
+# What the deploy workflow does: push the API image, publish the React build, invalidate the CDN.
+data "aws_iam_policy_document" "deploy" {
   statement {
+    sid       = "EcrLogin"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    sid    = "EcrPush"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
+      "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages",
+    ]
+    resources = [aws_ecr_repository.api.arn]
+  }
+  statement {
+    sid       = "FrontendList"
     effect    = "Allow"
     actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.data.arn]
+    resources = [aws_s3_bucket.frontend.arn]
+  }
+  statement {
+    sid       = "FrontendWrite"
+    effect    = "Allow"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.frontend.arn}/*"]
+  }
+  statement {
+    sid       = "CdnInvalidate"
+    effect    = "Allow"
+    actions   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
+    resources = [aws_cloudfront_distribution.dashboard.arn]
+  }
+  statement {
+    sid       = "AppRunnerDeploy"
+    effect    = "Allow"
+    actions   = ["apprunner:StartDeployment", "apprunner:DescribeService", "apprunner:ListOperations"]
+    resources = [aws_apprunner_service.api.arn]
   }
 }
 
-resource "aws_iam_role_policy" "deploy_state" {
-  name   = "data-bucket-read"
+resource "aws_iam_role_policy" "deploy" {
+  name   = "deploy"
   role   = aws_iam_role.deploy.id
-  policy = data.aws_iam_policy_document.deploy_state.json
+  policy = data.aws_iam_policy_document.deploy.json
 }

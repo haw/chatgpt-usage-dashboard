@@ -123,3 +123,6 @@ def test_login_redirects_to_google_with_hosted_domain(google_app, monkeypatch):
     assert "hd=haw.co.jp" in response.headers["location"]
     assert "prompt=select_account" in response.headers["location"]
     assert "redirect_uri=http://testserver/auth/callback" in response.headers["location"]
+    # Behind CloudFront the public host arrives in X-Forwarded-Host (set by the viewer-request function).
+    forwarded = client.get("/login/google", headers={"x-forwarded-host": "dashboard.example.com", "x-forwarded-proto": "https"})
+    assert "redirect_uri=https://dashboard.example.com/auth/callback" in forwarded.headers["location"]

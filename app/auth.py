@@ -70,11 +70,19 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
     domains = settings.auth_allowed_domains
 
     # /login itself is a page of the React app; the backend only starts the OAuth flow.
+    def callback_url(request: Request) -> str:
+        """The public callback URL: BASE_URL, else the forwarded host set by the CDN, else this request's host."""
+        if settings.base_url:
+            return settings.base_url.rstrip("/") + "/auth/callback"
+        forwarded_host = request.headers.get("x-forwarded-host")
+        if forwarded_host:
+            proto = request.headers.get("x-forwarded-proto", "https")
+            return f"{proto}://{forwarded_host.split(',')[0].strip()}/auth/callback"
+        return str(request.url_for("auth_callback"))
+
     @app.get("/login/google", include_in_schema=False)
     async def login(request: Request):
-        redirect_uri = str(request.url_for("auth_callback"))
-        if settings.base_url:  # behind a proxy the request host may be internal
-            redirect_uri = settings.base_url.rstrip("/") + "/auth/callback"
+        redirect_uri = callback_url(request)
         extra = {"prompt": "select_account"}  # always show the chooser, so logging out really means logging out
         if len(domains) == 1:
             extra["hd"] = domains[0]  # narrow the chooser to the Workspace domain
@@ -109,7 +117,7 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
     app.add_middleware(RequireLogin)
     app.add_middleware(
         SessionMiddleware, secret_key=settings.session_secret, session_cookie="dashboard_session",
-        https_only=settings.base_url.startswith("https://") if settings.base_url else False,
+        https_only=settings.session_secure,
         same_site="lax", max_age=12 * 60 * 60,
     )
     return oauth

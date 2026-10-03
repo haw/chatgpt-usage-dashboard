@@ -22,6 +22,7 @@ class Settings:
     session_secret: str = ""
     auth_allowed_domains: tuple[str, ...] = ()
     base_url: str = ""
+    session_secure: bool = False
     frontend_dist: Path | None = None
 
     @classmethod
@@ -44,6 +45,8 @@ class Settings:
             if not domains:
                 raise ValueError("AUTH_MODE=google requires AUTH_ALLOWED_DOMAINS (e.g. haw.co.jp)")
         frontend_dist = os.getenv("FRONTEND_DIST", "").strip()
+        base_url = os.getenv("BASE_URL", "").strip()
+        session_secure = os.getenv("SESSION_SECURE", "").strip().lower() in {"1", "true", "yes"} or base_url.startswith("https://")
         return cls(
             data_dir=Path(os.getenv("DATA_DIR", "./data")),
             storage_backend=storage_backend,
@@ -57,6 +60,7 @@ class Settings:
             google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
             session_secret=os.getenv("SESSION_SECRET", "").strip(),
             auth_allowed_domains=domains,
-            base_url=os.getenv("BASE_URL", "").strip(),
+            base_url=base_url,
+            session_secure=session_secure,
             frontend_dist=Path(frontend_dist) if frontend_dist else None,
         )

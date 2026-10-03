@@ -1,5 +1,10 @@
 # Copy to prod.tfvars (ignored by git) and adjust.
-aws_region          = "ap-northeast-1"
-environment         = "prod"
-github_repository   = "haw/chatgpt-usage-dashboard"
-data_retention_days = 0
+aws_region           = "ap-northeast-1"
+environment          = "prod"
+github_repository    = "haw/chatgpt-usage-dashboard"
+auth_allowed_domains = ["haw.co.jp"]
+data_retention_days  = 0
+
+# Custom domain (optional). Leave both empty to use the *.cloudfront.net domain.
+domain_name     = ""
+route53_zone_id = ""

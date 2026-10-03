@@ -1,0 +1,79 @@
+name: Deploy
+
+# Ships main to production: API image to ECR (App Runner auto-deploys :latest),
+# React build to S3, CloudFront invalidation. Runs only once the Terraform outputs
+# have been stored as repository variables; before that every job is skipped.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  api:
+    if: vars.AWS_ROLE_ARN != '' && vars.ECR_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push the API image
+        run: |
+          docker build -t "${{ vars.ECR_REPOSITORY }}:${{ github.sha }}" -t "${{ vars.ECR_REPOSITORY }}:latest" .
+          docker push "${{ vars.ECR_REPOSITORY }}:${{ github.sha }}"
+          docker push "${{ vars.ECR_REPOSITORY }}:latest"
+      - name: Wait for App Runner to roll the new image
+        if: vars.APPRUNNER_SERVICE_ARN != ''
+        run: |
+          sleep 30
+          for i in $(seq 1 40); do
+            status=$(aws apprunner describe-service --service-arn "${{ vars.APPRUNNER_SERVICE_ARN }}" --query 'Service.Status' --output text)
+            echo "App Runner: $status"
+            [ "$status" = "RUNNING" ] && exit 0
+            sleep 15
+          done
+          exit 1
+
+  frontend:
+    if: vars.AWS_ROLE_ARN != '' && vars.FRONTEND_BUCKET != ''
+    runs-on: ubuntu-latest
+    environment: prod
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Publish the build
+        run: |
+          # Hashed assets can be cached for a year; index.html must always be fresh.
+          aws s3 sync dist "s3://${{ vars.FRONTEND_BUCKET }}" --delete --exclude index.html --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp dist/index.html "s3://${{ vars.FRONTEND_BUCKET }}/index.html" --cache-control "no-cache"
+      - name: Invalidate CloudFront
+        if: vars.CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/index.html" "/"
