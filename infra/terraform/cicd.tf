@@ -101,6 +101,18 @@ resource "aws_iam_role_policy" "codebuild" {
   policy = data.aws_iam_policy_document.codebuild.json
 }
 
+# IAM is eventually consistent: CodeBuild rejects a service role created seconds earlier with
+# "OAuthProviderException: The security token included in the request is invalid".
+resource "terraform_data" "codebuild_role_settled" {
+  input = aws_iam_role.codebuild.arn
+
+  provisioner "local-exec" {
+    command = "sleep 20"
+  }
+
+  depends_on = [aws_iam_role_policy.codebuild]
+}
+
 resource "aws_codebuild_project" "deploy" {
   name          = "${local.name}-deploy"
   description   = "Deploys ${var.github_repository} (${var.deploy_branch}) to ${var.environment}."
@@ -161,7 +173,7 @@ resource "aws_codebuild_project" "deploy" {
     }
   }
 
-  depends_on = [aws_iam_role_policy.codebuild]
+  depends_on = [terraform_data.codebuild_role_settled]
 }
 
 # Only pushes to the deploy branch start a build. Pull requests (including those from forks
