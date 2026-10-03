@@ -14,17 +14,17 @@ output "data_bucket" {
 }
 
 output "frontend_bucket" {
-  description = "S3 bucket the React build is synced to (CI variable FRONTEND_BUCKET)."
+  description = "S3 bucket the React build is synced to."
   value       = aws_s3_bucket.frontend.bucket
 }
 
 output "cloudfront_distribution_id" {
-  description = "Distribution to invalidate after a frontend deploy (CI variable CLOUDFRONT_DISTRIBUTION_ID)."
+  description = "Distribution to invalidate after a frontend deploy."
   value       = aws_cloudfront_distribution.dashboard.id
 }
 
 output "ecr_repository" {
-  description = "ECR repository URL for the API image (CI variable ECR_REPOSITORY)."
+  description = "ECR repository URL for the API image."
   value       = aws_ecr_repository.api.repository_url
 }
 
@@ -34,18 +34,23 @@ output "api_origin" {
 }
 
 output "ecs_service" {
-  description = "ECS service name (CI variable ECS_SERVICE)."
+  description = "ECS service name."
   value       = aws_ecs_service.api.name
 }
 
 output "ecs_cluster" {
-  description = "ECS cluster name (CI variable ECS_CLUSTER)."
+  description = "ECS cluster name."
   value       = aws_ecs_cluster.api.name
 }
 
-output "deploy_role_arn" {
-  description = "Role the GitHub Actions deploy workflow assumes (repository variable AWS_ROLE_ARN)."
-  value       = aws_iam_role.deploy.arn
+output "codebuild_project" {
+  description = "CodeBuild project that deploys every push to the deploy branch (`make deploy`, `make deploy-status`)."
+  value       = aws_codebuild_project.deploy.name
+}
+
+output "github_connection_arn" {
+  description = "Connection CodeBuild uses to read the GitHub repository; a new one must be authorised once in the AWS console."
+  value       = local.github_connection_arn
 }
 
 output "ssm_parameter_names" {

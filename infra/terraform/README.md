@@ -1,6 +1,6 @@
 # 本番環境（Terraform）
 
-本番環境は HAW の AWS に Terraform で構築し、GitHub Actions から OIDC でデプロイします。構成・対象・使い方・判断事項はこのファイルにまとめます（アプリ本体の説明は [リポジトリの README](../../README.md)）。
+本番環境は HAW の AWS に Terraform で構築します。アプリの配信は AWS 側（CodeBuild）が GitHub のリポジトリを取りに行って行います。構成・対象・使い方・判断事項はこのファイルにまとめます（アプリ本体の説明は [リポジトリの README](../../README.md)）。
 
 ## 構成
 
@@ -11,19 +11,20 @@
 API の環境変数: STORAGE_BACKEND=s3 / AUTH_MODE=google / 許可ドメイン / SESSION_SECURE
 シークレット（Google OAuth の ID・Secret、セッション鍵）: SSM Parameter Store（SecureString）
 データ: S3 バケット（raw・正規化 JSONL・状態・確認済み記録）
-GitHub Actions: main への push → API 画像を ECR へ push し ECS サービスを再デプロイ、画面を S3 へ同期 → CloudFront 無効化
+配信: main への push → CodeBuild がリポジトリを取得 → API 画像を ECR へ push し ECS サービスを再デプロイ、画面を S3 へ同期 → CloudFront 無効化
 ```
 
 | 管理するもの | ファイル |
 |---|---|
-| データ用 S3 バケット、GitHub OIDC デプロイロール（ECR push / S3 同期 / CloudFront 無効化 / ECS サービス更新） | `main.tf` |
+| データ用 S3 バケット | `main.tf` |
+| 配信: GitHub への接続（CodeConnections）、CodeBuild プロジェクトと push の Webhook、その実行ロール（ECR push / S3 同期 / CloudFront 無効化 / ECS サービス更新）、ビルドログ | `cicd.tf` |
 | ECR リポジトリ（直近 10 画像を保持） | `ecr.tf` |
 | SSM Parameter Store のシークレット 3 つ（値は Terraform 管理外） | `secrets.tf` |
 | 既存 ALB への相乗り（API 用ホスト名の Route53 レコードと ACM 証明書をリスナーに追加、ホスト名＋秘密ヘッダーのリスナールール、ターゲットグループ）、ECS クラスター、タスク定義、サービス（0.25 vCPU / 0.5 GB の Fargate タスク 1 固定、`/health`、ログ保持 90 日）、実行・タスクロール、タスクの SG | `ecs.tf` |
 | 画面用 S3 バケット、CloudFront（2 オリジン、API パスはキャッシュなし、SPA 用と転送ヘッダ用の CloudFront Functions） | `frontend.tf` |
 | 独自ドメイン（任意）: ACM 証明書（us-east-1、DNS 検証）と Route53 の別名レコード | `domain.tf` |
 
-管理しないもの: 相乗り先の ALB 本体と VPC・サブネット（`shared_alb_arn` で指定した ALB から VPC・サブネット・SG を読み取る）、GitHub OIDC プロバイダ（アカウントに登録済みのものを参照）、Google Cloud の OAuth クライアント、ローカル開発環境（Docker Compose）。
+管理しないもの: 相乗り先の ALB 本体と VPC・サブネット（`shared_alb_arn` で指定した ALB から VPC・サブネット・SG を読み取る）、GitHub 接続の承認（コンソールで 1 回）、Google Cloud の OAuth クライアント、ローカル開発環境（Docker Compose）。
 
 ### 実行基盤の選び方
 - App Runner は 2026 年 3 月末にメンテナンスモード入りが発表され、4 月 30 日以降は新規顧客が利用できないため使いません。
@@ -36,7 +37,7 @@ GitHub Actions: main への push → API 画像を ECR へ push し ECS サー�
 
 ### 設計上の要点
 - **タスクは 1 つ**: 正規化データは取込時に全体を書き戻す方式のため、`desired_count = 1` とし、デプロイ時も 2 タスクが同時に動かないよう「止めてから起動」（最小 0% / 最大 100%）にしています。入れ替え中は数十秒ほど API が応答しません。
-- **画像の更新**: タスク定義は `latest` を参照し、デプロイのワークフローが push 後に `update-service --force-new-deployment` で入れ替えます。
+- **画像の更新**: タスク定義は `latest` を参照し、CodeBuild が push 後に `update-service --force-new-deployment` で入れ替えます。
 - **ALB を迂回できない**: リスナールールは CloudFront が付ける秘密ヘッダーを要求するため、ALB のホスト名を直接叩いても API には届きません。タスクの SG も ALB の SG からの 8000 番しか許可しません。
 - **NAT なし**: タスクはパブリックサブネットでパブリック IP を持ち、ECR・SSM・ログへの到達に NAT を使いません（受信は ALB からのみ）。
 - **同一オリジン**: 画面と API を同じ CloudFront ドメインで配信するので、セッション Cookie と OAuth のリダイレクトは開発時と同じ仕組みで動きます。CloudFront Function が `X-Forwarded-Host` / `X-Forwarded-Proto` を API に渡し、API はそれからコールバック URL を組み立てます（`BASE_URL` は不要）。
@@ -47,7 +48,8 @@ GitHub Actions: main への push → API 画像を ECR へ push し ECS サー�
 
 - Docker と Docker Compose だけ。Terraform と AWS CLI はホストに入れず、専用コンテナ（`terraform` サービス。Terraform 1.13.4 + AWS CLI v2、[Dockerfile](Dockerfile)）で実行します。
 - HAW の AWS アカウント（ALB のあるアカウント）の IAM ユーザーのアクセスキー。キーはこのコンテナ専用の Docker ボリューム（`aws_credentials`）だけに保存します。ホストの `~/.aws` はマウントしないので、ホスト側にキーは残らず、コンテナからホストの他のプロファイルも見えません。リポジトリ内のファイル（`.env`、`*.tfvars` など）には書かないでください。
-- GitHub OIDC プロバイダ `token.actions.githubusercontent.com` がアカウントに登録済み（HAW のアカウントには登録済み）。state 用 S3 バケットは `make tf-bootstrap` が作ります（「初回だけ行うこと」参照）。
+- state 用 S3 バケットは `make tf-bootstrap` が作ります（「初回だけ行うこと」参照）。
+- GitHub の `haw` 組織に AWS の連携アプリ（AWS Connector for GitHub）を入れられる権限（組織のオーナー）。初回の接続承認で 1 回だけ使います。
 
 ## コマンド（make）
 
@@ -63,7 +65,8 @@ Terraform と AWS CLI はすべて `make` 経由で、コンテナの中で実�
 | `make tf-plan` | `terraform plan -var-file=envs/prod.tfvars` |
 | `make tf-apply` | `terraform apply -var-file=envs/prod.tfvars` |
 | `make tf-output` | `terraform output`。1 つだけ取り出すときは `make -s tf-output ARGS="-raw ecr_repository"` |
-| `make tf-first-image` | 初回だけ。ECR だけ作って API の画像を 1 度 push |
+| `make tf-first-image` | 初回だけ。ECR と GitHub 接続（承認待ち）だけ作り、API の画像を 1 度 push |
+| `make deploy` / `make deploy-status` | 配信を手動で開始 / 直近 5 回の配信結果を表示 |
 | `make tf-fmt` / `make tf-check` | 整形 / CI と同じ検査（`fmt -check`・`validate`。AWS 認証不要） |
 | `make tf ARGS="…"` / `make aws ARGS="…"` | 上にない terraform / aws のコマンド（例: `make tf ARGS="state list"`） |
 | `make tf-shell` | コンテナのシェルに入る（terraform、aws、jq、openssl が使えます） |
@@ -87,10 +90,11 @@ make tf-output
 1. **コンテナと認証**: `make tf-build`、`make aws-configure`、`make aws-whoami` でアカウントを確認。
 2. **state バケット**を作る: `make tf-bootstrap`。このプロジェクト専用のバケット `chatgpt-usage-dashboard-terraform-state-<アカウント ID>`（バージョニング・暗号化・パブリックアクセスブロック・TLS 必須）を [bootstrap/](bootstrap/main.tf) の Terraform で作り、`envs/prod.backend.hcl` を書き出します。作成内容が表示されるので `yes` で確定します。再実行しても変更は出ません。
    - bootstrap 自身の state はローカルの `bootstrap/terraform.tfstate`（git 管理外）です。なくしても `make tf ARGS="-chdir=bootstrap import aws_s3_bucket.state <バケット名>"` で戻せます。
-3. **GitHub OIDC プロバイダ** `token.actions.githubusercontent.com` が IAM にあることを確認: `make aws ARGS="iam list-open-id-connect-providers"`（HAW のアカウントには登録済み。なければ `make aws ARGS="iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com"`）。
-4. **設定ファイル**: `envs/prod.tfvars.example` を `envs/prod.tfvars` にコピーし、相乗り先の ALB `haw-dev-load-balancer`（`ken.haw.biz` や `*.dev.haw.biz` の各アプリが相乗りしている HTTPS:443 リスナー付きの ALB）の ARN などを記入。タスクは既定で ALB と同じサブネットを使うので、サブネットの指定は不要です。続けて `make tf-init`。
-5. **ECR を先に作る**: `make tf-first-image`。ECS サービスは作成時に画像が必要なので、ECR だけ適用し（`yes` で確定）、ホストの `docker` で API の画像を作って 1 度 push します。以後は CI が push します。
-6. **全体を適用**: `make tf-plan` で内容を確認し、`make tf-apply`（ACM の DNS 検証を含むので数分かかります）。
+3. **設定ファイル**: `envs/prod.tfvars.example` を `envs/prod.tfvars` にコピーし、相乗り先の ALB `haw-dev-load-balancer`（`ken.haw.biz` や `*.dev.haw.biz` の各アプリが相乗りしている HTTPS:443 リスナー付きの ALB）の ARN などを記入。タスクは既定で ALB と同じサブネットを使うので、サブネットの指定は不要です。続けて `make tf-init`。
+4. **ECR と GitHub 接続を先に作る**: `make tf-first-image`。ECS サービスは作成時に画像が必要なので、ECR と GitHub 接続だけ適用し（`yes` で確定）、ホストの `docker` で API の画像を作って 1 度 push します。以後は CodeBuild が push します。
+5. **GitHub 接続を承認**（コンソールでの手作業はここだけ）: AWS コンソールの「デベロッパー用ツール」→「設定」→「接続」で `chatgpt-dashboard-prod`（状態: 保留中）を開き、「保留中の接続を更新」→ GitHub の `haw` 組織に AWS Connector for GitHub を入れて（導入済みなら選んで）このリポジトリへのアクセスを許可します。状態が「利用可能」になれば完了です。確認: `make aws ARGS="codeconnections list-connections --query Connections[].[ConnectionName,ConnectionStatus] --output table"`。
+   - 承認済みの接続がすでにあり、このリポジトリを読めるなら、`envs/prod.tfvars` の `github_connection_arn` にその ARN を書けばこの手順は不要です。
+6. **全体を適用**: `make tf-plan` で内容を確認し、`make tf-apply`（ACM の DNS 検証を含むので数分かかります）。接続が未承認のままだと CodeBuild 側（Webhook の登録）で失敗するはずなので、手順 5 を先に済ませます。
 7. **シークレットを設定**（Terraform は値を上書きしません）。値を打ち込むので `make tf-shell` でコンテナに入って実行します:
    ```bash
    P=/chatgpt-usage-dashboard/prod
@@ -100,37 +104,26 @@ make tf-output
    aws ecs update-service --cluster $(terraform output -raw ecs_cluster) --service $(terraform output -raw ecs_service) --force-new-deployment   # 新しい値でタスクを入れ替える
    ```
 8. **Google Cloud** の OAuth クライアントに `make -s tf-output ARGS="-raw oauth_redirect_uri"` の値を「承認済みのリダイレクト URI」として追加。
-9. **GitHub のリポジトリ変数**を設定（アプリの配信 `deploy.yml` 用）。値は `make tf-output` の一覧にあります:
-
-   | 変数 | `make tf-output` の項目 |
-   |---|---|
-   | `AWS_ROLE_ARN` | `deploy_role_arn` |
-   | `ECR_REPOSITORY` | `ecr_repository` |
-   | `FRONTEND_BUCKET` | `frontend_bucket` |
-   | `CLOUDFRONT_DISTRIBUTION_ID` | `cloudfront_distribution_id` |
-   | `ECS_SERVICE` | `ecs_service` |
-   | `ECS_CLUSTER` | `ecs_cluster` |
-
-   配信の前に人の承認を挟みたい場合は、GitHub の `prod` Environment に承認者を設定します（任意）。
-
-10. `main` に push すると `deploy.yml` が画像と画面を配信します（初回は `workflow_dispatch` で手動実行も可）。`make tf-output` の `dashboard_url` を開いて確認。
+9. **最初の配信**: `make deploy` で CodeBuild を 1 回動かし（画面が S3 に入ります）、`make deploy-status` で `SUCCEEDED` を確認。`make tf-output` の `dashboard_url` を開いて確認します。以後は `main` に push するたびに自動で配信されます。GitHub 側に設定するもの（変数・シークレット）はありません。
 
 別環境（staging など）は `envs/staging.tfvars` を用意して `environment = "staging"` にし、`make tf-bootstrap ENV=staging` で `envs/staging.backend.hcl` を書き出します（バケットは共通で、`key` だけが変わります）。以後のコマンドにも `ENV=staging` を付けます。
 
 ## CI/CD
 
-| ワークフロー | きっかけ | 実行内容 | 必要なもの |
+| 何が | きっかけ | 実行内容 | どこで動く |
 |---|---|---|---|
-| `ci.yml` | PR / main | pytest、Docker ビルド、画面の typecheck・build・テスト | なし |
-| `terraform.yml` | `infra/terraform/**` の変更 | `fmt -check` / `validate` だけ（AWS には触らない） | なし |
-| `deploy.yml` | main への push / 手動 | API 画像を ECR へ push し、ECS サービスを再デプロイして安定するまで待機。画面をビルドして S3 へ同期、CloudFront を無効化 | 上の表の変数すべて |
+| `ci.yml` | PR / main | pytest、Docker ビルド、画面の typecheck・build・テスト | GitHub Actions |
+| `terraform.yml` | `infra/terraform/**` の変更 | `fmt -check` / `validate` だけ（AWS には触らない） | GitHub Actions |
+| 配信（[buildspec.yml](../../buildspec.yml)） | main への push / `make deploy` | API 画像を ECR へ push し、ECS サービスを再デプロイして安定するまで待機。画面をビルドして S3 へ同期、CloudFront を無効化 | AWS CodeBuild |
 
-`deploy.yml` は変数が未設定の間ジョブがスキップされるので、土台だけの状態でも CI は通ります。
-
-Terraform の `plan` / `apply` は CI では行いません。担当者が手元のコンテナから `make tf-plan` / `make tf-apply` で実行します。CI が使うロール（`deploy_role_arn`）の権限はアプリの配信（ECR への push、画面用 S3 の更新、CloudFront の無効化、ECS の再デプロイ）だけで、インフラを変更する権限は持たせていません。
+- **配信は AWS が取りに行く形**です。CodeBuild が GitHub への接続（CodeConnections）でリポジトリを取得するので、GitHub には AWS のロール・変数・シークレットを置きません。GitHub Actions は AWS に一切触りません。
+- **結果の確認**: `make deploy-status`（直近 5 回）。ログは CloudWatch Logs の `/aws/codebuild/chatgpt-usage-dashboard-prod-deploy` です。リポジトリが公開で、結果のリンクに AWS アカウント ID が含まれるため、GitHub のコミットには結果を表示しません。
+- **動くのは main への push だけ**です。PR（フォークからのものを含む）では配信は動きません。
+- **CodeBuild の権限**はアプリの配信（ECR への push、画面用 S3 の更新、CloudFront の無効化、ECS の再デプロイ）だけで、インフラを変更する権限は持たせていません。
+- Terraform の `plan` / `apply` は CI では行いません。担当者が手元のコンテナから `make tf-plan` / `make tf-apply` で実行します。
 
 ## 費用の目安（東京、月額）
-Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM・ログは利用量が小さく合計 $1〜2。ALB は既存のものに相乗り（ルール・証明書は無料）、ACM 証明書も無料。合計 **約 $10〜11/月**。
+Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM・ログは利用量が小さく合計 $1〜2。CodeBuild は 1 回数分のビルド時間分だけ（無料枠内か、超えても月数十円程度の見込み）。ALB は既存のものに相乗り（ルール・証明書は無料）、ACM 証明書も無料。合計 **約 $10〜11/月**。
 
 ## 決定事項
 
@@ -141,7 +134,7 @@ Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM�
 | 実行基盤 | 既存 ALB に相乗りする ECS Fargate（API）、S3 + CloudFront（画面） | 画面と API を分離。App Runner は新規利用不可、ECS Express Mode は ALB の固定費が乗るため |
 | 認証 | アプリ内の Google Workspace OAuth（社内の TARO・KEN と同じ型）。シークレットは SSM | 社内実績あり |
 | ドメイン | `chatgpt-dashboard.dev.haw.biz`（`dev.haw.biz` は Route53 の委任済みゾーン） | 要望 |
-| デプロイ | アプリの配信は GitHub Actions OIDC → IAM ロール（鍵を置かない）。インフラの `apply` は CI に任せず担当者が実行 | CI に強い権限を持たせない |
+| デプロイ | アプリの配信は AWS CodeBuild が GitHub から取得して実行（main への push が契機）。インフラの `apply` は担当者が実行 | 公開リポジトリと GitHub 側に AWS の情報や権限を置かない |
 | データ | S3 バケット 1 つ。アプリは `STORAGE_BACKEND=s3` | 既存アダプター |
 
 ## 参考にした社内リポジトリ

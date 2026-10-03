@@ -21,9 +21,21 @@ variable "name_prefix" {
 }
 
 variable "github_repository" {
-  description = "GitHub repository (owner/name) allowed to assume the deploy role through OIDC."
+  description = "GitHub repository (owner/name) CodeBuild deploys from."
   type        = string
   default     = "haw/chatgpt-usage-dashboard"
+}
+
+variable "deploy_branch" {
+  description = "Branch whose pushes are deployed."
+  type        = string
+  default     = "main"
+}
+
+variable "github_connection_arn" {
+  description = "Existing, already authorised CodeConnections connection to GitHub that can read the repository. Empty creates a new connection, which has to be authorised once in the AWS console."
+  type        = string
+  default     = ""
 }
 
 variable "data_retention_days" {
@@ -39,7 +51,7 @@ variable "auth_allowed_domains" {
 }
 
 variable "image_tag" {
-  description = "ECR image tag the task runs. The deploy workflow pushes this tag and forces a new deployment."
+  description = "ECR image tag the task runs. The CodeBuild deploy pushes this tag and forces a new deployment."
   type        = string
   default     = "latest"
 }

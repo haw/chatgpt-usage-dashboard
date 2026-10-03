@@ -14,3 +14,6 @@ api_hostname    = "api.chatgpt-dashboard.dev.haw.biz"
 # The task uses the ALB's own subnets unless task_subnet_ids is set.
 shared_alb_arn = "arn:aws:elasticloadbalancing:ap-northeast-1:<account>:loadbalancer/app/haw-dev-load-balancer/<id>"
 
+# CodeBuild reads the repository through a CodeConnections connection. Leave this out to create a new
+# connection (authorise it once in the AWS console), or reuse one that is already authorised:
+# github_connection_arn = "arn:aws:codeconnections:ap-northeast-1:<account>:connection/<id>"

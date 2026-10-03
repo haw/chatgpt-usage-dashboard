@@ -3,8 +3,8 @@
 #   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── shared ALB ── Fargate task (API image)
 #                                   └── everything else ──────────────────────────────── S3 (built React app, private)
 #
-# This file holds what every piece shares: naming, the data bucket the API writes to
-# and the GitHub OIDC deploy role. See ecr.tf, ecs.tf, frontend.tf, secrets.tf, domain.tf.
+# This file holds what every piece shares: naming and the data bucket the API writes to.
+# See ecr.tf, ecs.tf, frontend.tf, secrets.tf, domain.tf and cicd.tf (the CodeBuild deploy).
 
 data "aws_caller_identity" "current" {}
 
@@ -58,85 +58,4 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
       days = var.data_retention_days
     }
   }
-}
-
-# --- GitHub Actions OIDC: the deploy workflow assumes this role, no keys ----
-
-data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-}
-
-data "aws_iam_policy_document" "github_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    principals {
-      type        = "Federated"
-      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-    condition {
-      test     = "StringLike"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main", "repo:${var.github_repository}:environment:${var.environment}"]
-    }
-  }
-}
-
-resource "aws_iam_role" "deploy" {
-  name               = "${local.name}-github-deploy"
-  assume_role_policy = data.aws_iam_policy_document.github_assume.json
-}
-
-# What the deploy workflow does: push the API image, publish the React build, invalidate the CDN.
-data "aws_iam_policy_document" "deploy" {
-  statement {
-    sid       = "EcrLogin"
-    effect    = "Allow"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-  statement {
-    sid    = "EcrPush"
-    effect = "Allow"
-    actions = [
-      "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
-      "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages",
-    ]
-    resources = [aws_ecr_repository.api.arn]
-  }
-  statement {
-    sid       = "FrontendList"
-    effect    = "Allow"
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.frontend.arn]
-  }
-  statement {
-    sid       = "FrontendWrite"
-    effect    = "Allow"
-    actions   = ["s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-  }
-  statement {
-    sid       = "CdnInvalidate"
-    effect    = "Allow"
-    actions   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
-    resources = [aws_cloudfront_distribution.dashboard.arn]
-  }
-  statement {
-    sid       = "EcsRollout"
-    effect    = "Allow"
-    actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
-    resources = [aws_ecs_service.api.id]
-  }
-}
-
-resource "aws_iam_role_policy" "deploy" {
-  name   = "deploy"
-  role   = aws_iam_role.deploy.id
-  policy = data.aws_iam_policy_document.deploy.json
 }

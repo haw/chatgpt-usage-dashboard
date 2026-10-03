@@ -1,4 +1,4 @@
-.PHONY: build up down test logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image
+.PHONY: build up down test logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image deploy deploy-status
 
 build:
 	docker compose build
@@ -73,14 +73,25 @@ tf-fmt:
 tf-check:
 	$(TF_RUN) sh -ec 'terraform fmt -check -recursive && terraform init -backend=false -input=false >/dev/null && terraform validate'
 
-# One-time, before the first full apply: the ECS service needs an image to start, so create
-# only the ECR repository and push the API image built on the host. CI pushes from then on.
+# One-time, before the first full apply: the ECS service needs an image to start and CodeBuild
+# needs an authorised GitHub connection. Creates only the ECR repository and the (pending)
+# connection, then pushes the API image built on the host. CodeBuild pushes from then on.
 tf-first-image:
-	$(TF_RUN) terraform apply -var-file=envs/$(ENV).tfvars -target=aws_ecr_repository.api
+	$(TF_RUN) terraform apply -var-file=envs/$(ENV).tfvars -target=aws_ecr_repository.api -target=aws_codeconnections_connection.github
 	REPO=$$($(TF_RUN) terraform output -raw ecr_repository) && \
 	$(TF_RUN) aws ecr get-login-password | docker login --username AWS --password-stdin $${REPO%%/*} && \
 	docker build -t $$REPO:latest . && \
 	docker push $$REPO:latest
+
+# Deploys run in AWS CodeBuild on every push to main. These start one by hand and list recent ones.
+deploy:
+	$(TF_RUN) sh -ec 'aws codebuild start-build --project-name "$$(terraform output -raw codebuild_project)" \
+		--query "build.{id:id,status:buildStatus,branch:sourceVersion}" --output table'
+
+deploy-status:
+	$(TF_RUN) sh -ec 'IDS=$$(aws codebuild list-builds-for-project --project-name "$$(terraform output -raw codebuild_project)" --no-paginate --query "ids[:5]" --output text); \
+		if [ -z "$$IDS" ] || [ "$$IDS" = "None" ]; then echo "No builds yet."; exit 0; fi; \
+		aws codebuild batch-get-builds --ids $$IDS --query "builds[].{started:startTime,status:buildStatus,phase:currentPhase,commit:resolvedSourceVersion}" --output table'
 
 # Deletes only the local ./data contents using the current host user's permissions.
 clear-data:

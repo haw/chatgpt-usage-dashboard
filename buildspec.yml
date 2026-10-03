@@ -1,0 +1,34 @@
+# Production deploy, run by AWS CodeBuild on every push to main (infra/terraform/cicd.tf).
+# The project supplies ECR_REPOSITORY, ECS_CLUSTER, ECS_SERVICE, FRONTEND_BUCKET and
+# CLOUDFRONT_DISTRIBUTION_ID. Base images come from the ECR Public mirror of Docker Hub,
+# which is not rate limited for CodeBuild's shared addresses.
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    PYTHON_IMAGE: public.ecr.aws/docker/library/python:3.12-slim
+    NODE_IMAGE: public.ecr.aws/docker/library/node:24-alpine
+
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_REPOSITORY%%/*}"
+  build:
+    commands:
+      # API image
+      - docker build --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t "$ECR_REPOSITORY:$CODEBUILD_RESOLVED_SOURCE_VERSION" -t "$ECR_REPOSITORY:latest" .
+      # React build (in a container, same Node version as development)
+      - docker run --rm -v "$PWD/frontend:/app" -w /app "$NODE_IMAGE" sh -c "npm ci && npm run build"
+  post_build:
+    commands:
+      # Publish only when everything above succeeded.
+      - test "$CODEBUILD_BUILD_SUCCEEDING" = "1"
+      - docker push "$ECR_REPOSITORY:$CODEBUILD_RESOLVED_SOURCE_VERSION"
+      - docker push "$ECR_REPOSITORY:latest"
+      - aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --force-new-deployment > /dev/null
+      # Hashed assets can be cached for a year; index.html must always be fresh.
+      - aws s3 sync frontend/dist "s3://$FRONTEND_BUCKET" --delete --exclude index.html --cache-control "public,max-age=31536000,immutable"
+      - aws s3 cp frontend/dist/index.html "s3://$FRONTEND_BUCKET/index.html" --cache-control "no-cache"
+      - aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/index.html" "/" > /dev/null
+      - aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
