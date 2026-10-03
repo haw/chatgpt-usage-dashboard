@@ -8,26 +8,22 @@ development) nothing here is installed and every route stays open.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import Settings
 
 GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
-PUBLIC_PATHS = {"/health", "/login", "/auth/callback", "/logout", "/api/me"}
+PUBLIC_PATHS = {"/health", "/login", "/login/google", "/auth/callback", "/logout", "/api/me"}
+LOGIN_PAGE = Path(__file__).parent / "static" / "login.html"
 SESSION_USER = "user"
-
-
-LOGGED_OUT_PAGE = """<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ログアウトしました</title><link rel="stylesheet" href="/static/styles.css"></head>
-<body><main style="max-width:480px;margin:12vh auto;text-align:center"><p class="eyebrow">SIGNED OUT</p><h1 style="font-size:1.6rem">ログアウトしました</h1>
-<p class="muted">このダッシュボードのセッションを終了しました。Google アカウント自体からはログアウトしていません。</p>
-<p><a href="/login" class="reset-range" style="display:inline-block;padding:10px 18px;text-decoration:none">別のアカウントでログイン</a></p></main></body></html>"""
 
 
 def allowed_email(email: str | None, domains: tuple[str, ...]) -> bool:
@@ -61,7 +57,7 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
     if settings.auth_mode != "google":
         @app.get("/api/me")
         def me_anonymous() -> dict:
-            return {"auth": "none", "user": None}
+            return {"auth": "none", "user": None, "domains": []}
         return None
 
     oauth = OAuth()
@@ -75,6 +71,13 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
     domains = settings.auth_allowed_domains
 
     @app.get("/login", include_in_schema=False)
+    def login_page(request: Request):
+        """The sign-in page; already signed-in users go straight to the dashboard."""
+        if request.session.get(SESSION_USER):
+            return RedirectResponse("/", status_code=302)
+        return FileResponse(LOGIN_PAGE)
+
+    @app.get("/login/google", include_in_schema=False)
     async def login(request: Request):
         redirect_uri = str(request.url_for("auth_callback"))
         if settings.base_url:  # behind a proxy the request host may be internal
@@ -89,25 +92,25 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
         try:
             token = await oauth.google.authorize_access_token(request)
         except OAuthError as exc:
-            raise HTTPException(status_code=400, detail=f"ログインに失敗しました: {exc.error}") from exc
+            return RedirectResponse("/login?" + urlencode({"error": "oauth", "detail": exc.error or ""}), status_code=302)
         info = token.get("userinfo") or {}
         email = info.get("email")
         if not info.get("email_verified", True) or not allowed_email(email, domains):
             request.session.clear()
-            raise HTTPException(status_code=403, detail=f"{email or '不明なアカウント'} は許可されたドメインではありません")
+            return RedirectResponse("/login?" + urlencode({"error": "domain", "email": email or ""}), status_code=302)
         request.session[SESSION_USER] = {"email": email, "name": info.get("name") or email, "picture": info.get("picture")}
         destination = request.session.pop("next", "/") or "/"
         return RedirectResponse(destination if destination.startswith("/") else "/", status_code=302)
 
     @app.get("/logout", include_in_schema=False)
     def logout(request: Request):
-        # Stop here instead of bouncing to /login, which would silently sign the same Google account back in.
+        # The login page does not auto-redirect to Google, so this does not silently sign the same account back in.
         request.session.clear()
-        return HTMLResponse(LOGGED_OUT_PAGE)
+        return RedirectResponse("/login?logged_out=1", status_code=302)
 
     @app.get("/api/me")
     def me(request: Request) -> dict:
-        return {"auth": "google", "user": current_user(request)}
+        return {"auth": "google", "user": current_user(request), "domains": list(domains)}
 
     # Middleware order: the session must be decoded before RequireLogin reads it, so add RequireLogin first.
     app.add_middleware(RequireLogin)

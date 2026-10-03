@@ -45,7 +45,16 @@ def test_without_login_mode_everything_is_open_and_me_is_anonymous(tmp_path, mon
 
     client = TestClient(app)
     assert client.get("/").status_code == 200
-    assert client.get("/api/me").json() == {"auth": "none", "user": None}
+    assert client.get("/api/me").json() == {"auth": "none", "user": None, "domains": []}
+
+
+def test_oauth_error_returns_to_the_login_page(google_app, monkeypatch):
+    from authlib.integrations.base_client.errors import OAuthError
+
+    client = TestClient(google_app.app, follow_redirects=False)
+    monkeypatch.setattr(google_app.oauth.google, "authorize_access_token", AsyncMock(side_effect=OAuthError(error="mismatching_state")))
+    response = client.get("/auth/callback?code=x&state=bad")
+    assert response.status_code == 302 and response.headers["location"] == "/login?error=oauth&detail=mismatching_state"
 
 
 def test_google_mode_requires_login(google_app):
@@ -53,8 +62,10 @@ def test_google_mode_requires_login(google_app):
     assert client.get("/health").status_code == 200
     page = client.get("/insights")
     assert page.status_code == 302 and page.headers["location"] == "/login"
+    login = client.get("/login")
+    assert login.status_code == 200 and "Google でログイン" in login.text  # a page, not an automatic bounce to Google
     assert client.get("/api/dashboard").status_code == 401
-    assert client.get("/api/me").json() == {"auth": "google", "user": None}
+    assert client.get("/api/me").json() == {"auth": "google", "user": None, "domains": ["haw.co.jp", "chaintope.com"]}
 
 
 def test_google_mode_config_validation(monkeypatch):
@@ -81,7 +92,7 @@ def test_callback_accepts_company_account_and_rejects_others(google_app, monkeyp
         "userinfo": {"email": "someone@gmail.com", "email_verified": True, "name": "Someone"},
     }))
     denied = client.get("/auth/callback?code=x&state=y")
-    assert denied.status_code == 403 and "許可されたドメイン" in denied.json()["detail"]
+    assert denied.status_code == 302 and denied.headers["location"] == "/login?error=domain&email=someone%40gmail.com"
     assert client.get("/api/me").json()["user"] is None
 
     monkeypatch.setattr(google_app.oauth.google, "authorize_access_token", AsyncMock(return_value={
@@ -93,9 +104,11 @@ def test_callback_accepts_company_account_and_rejects_others(google_app, monkeyp
     assert client.get("/api/me").json()["user"] == {"email": "taro@haw.co.jp", "name": "Taro", "picture": "p"}
     assert client.get("/api/dashboard").status_code == 200
     assert client.get("/").status_code == 200
+    signed_in_login = client.get("/login")
+    assert signed_in_login.status_code == 302 and signed_in_login.headers["location"] == "/"
 
     out = client.get("/logout")
-    assert out.status_code == 200 and "ログアウトしました" in out.text  # a page, not a bounce back into Google
+    assert out.status_code == 302 and out.headers["location"] == "/login?logged_out=1"
     assert client.get("/api/dashboard").status_code == 401
     assert client.get("/api/me").json()["user"] is None
 
@@ -107,7 +120,7 @@ def test_login_redirects_to_google_with_hosted_domain(google_app, monkeypatch):
     monkeypatch.setattr(module.oauth.google, "authorize_redirect",
                         AsyncMock(side_effect=lambda request, redirect_uri, **kw: __import__("fastapi").responses.RedirectResponse(
                             f"https://accounts.google.com/o/oauth2/auth?redirect_uri={redirect_uri}&hd={kw.get('hd', '')}&prompt={kw.get('prompt', '')}", status_code=302)))
-    response = client.get("/login")
+    response = client.get("/login/google")
     assert response.status_code == 302
     assert "hd=haw.co.jp" in response.headers["location"]
     assert "prompt=select_account" in response.headers["location"]

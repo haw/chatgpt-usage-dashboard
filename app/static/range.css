@@ -196,3 +196,9 @@
 .ai-presets { display:flex; align-items:center; gap:8px; flex-wrap:wrap }
 .account { display:flex; align-items:center; gap:10px; font-size:.8rem; color:var(--muted) }
 .account a { text-decoration:none }
+.login-main { max-width:520px; margin:8vh auto; padding:0 max(4vw,24px) }
+.login-card { text-align:center; display:grid; gap:12px; justify-items:center }
+.login-card h2 { margin:0 }
+.login-card .message { width:100%; margin:0 }
+.login-button { display:inline-flex; align-items:center; gap:8px; padding:12px 22px; border-radius:999px; background:var(--green); color:white; font-weight:700; text-decoration:none }
+.login-button:hover { filter:brightness(1.05) }

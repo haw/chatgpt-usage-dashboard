@@ -102,8 +102,9 @@ BASE_URL=https://dashboard.example.com  # プロキシ配下で外部 URL が内
 ```
 
 - Google Cloud 側で「承認済みのリダイレクト URI」に `<BASE_URL>/auth/callback` を登録します。組織内のみのクライアントにしておくと、他組織のアカウントは Google 側で弾かれます。
-- `/health`・`/login`・`/auth/callback`・`/logout`・`/api/me` 以外はすべてログイン必須です。未ログインの画面アクセスは `/login` へ、API は 401 を返します。
-- ログイン後、画面右上にメールアドレスと「ログアウト」が表示されます。セッションは12時間で切れます。
+- `/health`・`/login`・`/login/google`・`/auth/callback`・`/logout`・`/api/me` 以外はすべてログイン必須です。未ログインの画面アクセスはログイン画面（`/login`）へ、API は 401 を返します。
+- ログイン画面の「Google でログイン」で `/login/google` → Google のアカウント選択（毎回表示）→ `/auth/callback` → 元の画面に戻ります。許可外ドメインや OAuth のエラーはログイン画面にメッセージとして表示します。
+- ログイン後、画面右上にメールアドレスと「ログアウト」が表示されます。ログアウトはこのアプリのセッションだけを終了し（Google は `end_session_endpoint` を持たないため）、ログイン画面に戻ります。セッションは12時間で切れます。
 
 ## JSON要件
 
