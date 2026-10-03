@@ -1,4 +1,4 @@
-.PHONY: build up down collect test logs clear-data
+.PHONY: build up down test logs clear-data
 
 build:
 	docker compose build
@@ -8,9 +8,6 @@ up:
 
 down:
 	docker compose down
-
-collect:
-	docker compose run --rm collector collect --days 7
 
 test:
 	docker compose run --rm --no-deps test

@@ -17,22 +17,12 @@ from app.triage import DISPOSITION_KINDS, build_triage, checked_dates
 
 from app import auth
 
-STATIC_DIR = Path(__file__).parent / "static"
-app = FastAPI(title="ChatGPT Usage Dashboard", docs_url="/api/docs", redoc_url=None)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# The API only. The React app in frontend/ is served separately (Vite in development,
+# S3 + CloudFront in production); FRONTEND_DIST optionally serves a built copy from here.
+app = FastAPI(title="ChatGPT Usage Dashboard API", docs_url="/api/docs", redoc_url=None)
+_settings = Settings.from_env()
 # AUTH_MODE=google installs Google OIDC login and protects every route; AUTH_MODE=none (default) leaves it open.
-oauth = auth.install(app, Settings.from_env())
-
-
-@app.get("/", include_in_schema=False)
-@app.get("/trends", include_in_schema=False)
-@app.get("/insights", include_in_schema=False)
-@app.get("/insights/{day}", include_in_schema=False)
-@app.get("/individual", include_in_schema=False)
-@app.get("/settings", include_in_schema=False)
-def index(day: str | None = None) -> FileResponse:
-    """Every view has its own path; the page picks the view from the URL and uses the History API."""
-    return FileResponse(STATIC_DIR / "index.html")
+oauth = auth.install(app, _settings)
 
 
 @app.get("/health")
@@ -305,3 +295,21 @@ async def import_individual_json(
     storage.save_individual_import_state(state)
     return build_individual_dashboard(storage.load_individual_usage(), state, user_id, day_overrides=overrides,
                                       sensitivity=sensitivity_value)
+
+
+def serve_frontend(dist: Path) -> None:
+    """Serve a built copy of the React app with SPA fallback (single-container deployments)."""
+    app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        candidate = dist / path
+        if path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(dist / "index.html")
+
+
+if _settings.frontend_dist and _settings.frontend_dist.is_dir():
+    serve_frontend(_settings.frontend_dist)

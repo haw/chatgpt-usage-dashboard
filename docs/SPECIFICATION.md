@@ -27,8 +27,8 @@ ChatGPT管理画面から出力した日次集計JSONを管理者が手動アッ
 - 取込元JSONを加工せず保存し、正規化データは日付・指標単位で冪等に置換し、未アップロードの指標を保持する。
 - ローカルでは `./data` 配下をストレージとして使用する。
 - ダッシュボードは保存済みデータだけを読み、OpenAI APIへアクセスしない。
-- Docker Composeでダッシュボードを実行できる。
-- Dashboardおよびcollectorコンテナはroot以外のユーザーで実行する。
+- 画面は React の SPA（`frontend/`）、サーバーは FastAPI の API 専任とし、本番では画面を S3 + CloudFront、API を App Runner で配信する。開発は Docker Compose（`dashboard` と `frontend`）で行う。
+- API コンテナは root 以外のユーザーで実行する。
 
 Chat/Codex/Workのアクティブユーザーには同一人物が重複する可能性があるため、製品間の値は合算しない。全体DAUが必要な箇所では「製品別DAUの最大値」を参考値として明記する。
 

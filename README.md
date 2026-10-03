@@ -2,15 +2,24 @@
 
 ChatGPT管理画面から出力した集計JSONをアップロードし、ワークスペース全体と指定した個人の利用推移・異常兆候を確認するローカルダッシュボードです。監査ログと会話本文は扱いません。
 
+## 構成
+
+- `frontend/`: 画面（React + TypeScript + MUI + ECharts、Vite）。本番では S3 + CloudFront から配信します。
+- `app/`: API（FastAPI）。取込・保存・判定・ログインだけを担当し、画面は配信しません（`FRONTEND_DIST` を指定した場合のみビルド済みの画面を同じコンテナから配信）。
+- `config/detectors.toml`、`plugins/`: 判定の設定と独自検知器。
+- `infra/terraform/`: 本番環境（AWS）。
+
 ## 起動と取込
 
 必要なものはDocker EngineとDocker Compose v2です。Admin APIキーは不要です。
 
 ```bash
-docker compose up -d --build dashboard
+docker compose up -d --build dashboard frontend
 ```
 
-[http://localhost:8000](http://localhost:8000) を開くと「推移」画面が出ます。上部の「アップロードして分析」ボタンからJSONを1つずつ、または2つまとめて選びます。DAU・トークンは独立しており、1つだけでもすぐグラフ・分析に反映されます。期間が異なるファイルも取り込めます。2つまとめて選ぶ場合、選択順は問いません。
+API（8000）と画面の開発サーバー（5180。`/api` などは API へプロキシ）が起動します。[http://localhost:5180](http://localhost:5180) を開くと「推移」画面が出ます。`frontend/` を編集すると即時に反映されます（初回は `npm ci` のため1〜2分かかります。進捗は `docker compose logs -f frontend`）。Docker を使わない場合は `cd frontend && npm ci && npm run dev`。
+
+上部の「アップロードして分析」ボタンからJSONを1つずつ、または2つまとめて選びます。DAU・トークンは独立しており、1つだけでもすぐグラフ・分析に反映されます。期間が異なるファイルも取り込めます。2つまとめて選ぶ場合、選択順は問いません。
 
 1. 1日のアクティブユーザー数JSON
 2. トークンJSON
@@ -101,9 +110,9 @@ AUTH_ALLOWED_DOMAINS=haw.co.jp  # カンマ区切り。これ以外のドメイ�
 BASE_URL=https://dashboard.example.com  # プロキシ配下で外部 URL が内部と異なるとき
 ```
 
-- Google Cloud 側で「承認済みのリダイレクト URI」に `<BASE_URL>/auth/callback` を登録します。組織内のみのクライアントにしておくと、他組織のアカウントは Google 側で弾かれます。
-- `/health`・`/login`・`/login/google`・`/auth/callback`・`/logout`・`/api/me` 以外はすべてログイン必須です。未ログインの画面アクセスはログイン画面（`/login`）へ、API は 401 を返します。
-- ログイン画面の「Google でログイン」で `/login/google` → Google のアカウント選択（毎回表示）→ `/auth/callback` → 元の画面に戻ります。許可外ドメインや OAuth のエラーはログイン画面にメッセージとして表示します。
+- Google Cloud 側で「承認済みのリダイレクト URI」に `<BASE_URL>/auth/callback` を登録します（ローカル開発は `http://localhost:5180/auth/callback`。開発サーバーのプロキシは Host ヘッダを通すので、コールバック先は 5180 になります）。組織内のみのクライアントにしておくと、他組織のアカウントは Google 側で弾かれます。
+- `/health`・`/login/google`・`/auth/callback`・`/logout`・`/api/me` 以外の API はすべてログイン必須で、未ログインなら 401 を返します。ログイン画面（`/login`）は React 側のページです。
+- 「Google でログイン」で `/login/google` → Google のアカウント選択（毎回表示）→ `/auth/callback` → 画面に戻ります。許可外ドメインや OAuth のエラーはログイン画面にメッセージとして表示します。
 - ログイン後、画面右上にメールアドレスと「ログアウト」が表示されます。ログアウトはこのアプリのセッションだけを終了し（Google は `end_session_endpoint` を持たないため）、ログイン画面に戻ります。セッションは12時間で切れます。
 
 ## JSON要件
@@ -199,26 +208,14 @@ AWSアクセスキーは設定せず、ECSタスクロールを利用してく�
 
 S3上のキーは `raw/<run-id>/...`、`normalized/*.jsonl`、`state/*.json` です。正規化データの更新は読込後に全体を書き戻す方式のため、アップロード処理を同時実行せず、ECSタスク数は1にするか外部で直列化してください。
 
-## フロントエンド（React 版、移行中）
-
-画面は `frontend/`（Vite + React + TypeScript + MUI + ECharts）へ移行中です。バックエンドは API 専任になります。
-
-```bash
-docker compose up -d --build dashboard frontend
-```
-
-バックエンド（8000）とフロントの開発サーバー（5180、`/api` などはバックエンドへプロキシ）が起動します。http://localhost:5180 を開きます。`frontend/` を編集すると即時に反映されます（初回は `npm ci` が走るため1〜2分かかります。進捗は `docker compose logs -f frontend`）。Docker を使わない場合は `cd frontend && npm ci && npm run dev`。`AUTH_MODE=google` で使う場合は、Google Cloud の「承認済みのリダイレクト URI」に `http://localhost:5180/auth/callback` も登録してください（プロキシは Host ヘッダを通すので、コールバック先は 5173 になります）。
-
-- `npm run typecheck` / `npm run build` / `npm test`（コンポーネントテストは実 API に接続します。`BACKEND=http://localhost:8001` のように向き先を指定）
-- 移植状況: 推移・ログイン画面は React 版、インサイト・個人別・取込と設定は移植中。移行完了までは従来の画面（http://localhost:8000）も使えます。
-
 ## テスト
 
 ```bash
-docker compose run --rm --no-deps test
+docker compose run --rm --no-deps test        # API: pytest
+cd frontend && npm run typecheck && npm test  # 画面: 型検査と、実 API に接続するコンポーネントテスト（BACKEND=http://localhost:8001 で向き先を指定）
 ```
 
-実データやネットワークを使わず、fixtureに対してJSON検証、冪等保存、異常判定、アップロードAPIを検証します。
+API のテストは実データやネットワークを使わず、合成 fixture に対して JSON 検証、冪等保存、異常判定、アップロード API、ログインを検証します。画面のテストは CI では AUTH_MODE=none の API を起動して合成 fixture を投入してから実行します。
 
 ## ドキュメント
 

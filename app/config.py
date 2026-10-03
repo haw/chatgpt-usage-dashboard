@@ -9,11 +9,7 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Settings:
-    admin_key: str
-    analytics_url: str
     data_dir: Path
-    timeout_seconds: float
-    max_retries: int
     storage_backend: str
     s3_bucket: str
     s3_prefix: str
@@ -26,13 +22,11 @@ class Settings:
     session_secret: str = ""
     auth_allowed_domains: tuple[str, ...] = ()
     base_url: str = ""
+    frontend_dist: Path | None = None
 
     @classmethod
-    def from_env(cls, *, require_key: bool = False) -> "Settings":
+    def from_env(cls) -> "Settings":
         load_dotenv()
-        key = os.getenv("OPENAI_ADMIN_KEY", "").strip()
-        if require_key and not key:
-            raise ValueError("OPENAI_ADMIN_KEY is not set. Copy .env.example to .env and set the Admin key.")
         storage_backend = os.getenv("STORAGE_BACKEND", "local").strip().lower()
         if storage_backend not in {"local", "s3"}:
             raise ValueError("STORAGE_BACKEND must be 'local' or 's3'")
@@ -49,14 +43,9 @@ class Settings:
                 raise ValueError(f"AUTH_MODE=google requires {', '.join(missing)}")
             if not domains:
                 raise ValueError("AUTH_MODE=google requires AUTH_ALLOWED_DOMAINS (e.g. haw.co.jp)")
+        frontend_dist = os.getenv("FRONTEND_DIST", "").strip()
         return cls(
-            admin_key=key,
-            analytics_url=os.getenv(
-                "OPENAI_ANALYTICS_URL", "https://api.chatgpt.com/v1/analytics/usage"
-            ).strip(),
             data_dir=Path(os.getenv("DATA_DIR", "./data")),
-            timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30")),
-            max_retries=int(os.getenv("MAX_RETRIES", "3")),
             storage_backend=storage_backend,
             s3_bucket=s3_bucket,
             s3_prefix=os.getenv("S3_PREFIX", "chatgpt-dashboard").strip().strip("/"),
@@ -69,4 +58,5 @@ class Settings:
             session_secret=os.getenv("SESSION_SECRET", "").strip(),
             auth_allowed_domains=domains,
             base_url=os.getenv("BASE_URL", "").strip(),
+            frontend_dist=Path(frontend_dist) if frontend_dist else None,
         )

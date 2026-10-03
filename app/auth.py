@@ -8,13 +8,12 @@ development) nothing here is installed and every route stays open.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -22,7 +21,6 @@ from app.config import Settings
 
 GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
 PUBLIC_PATHS = {"/health", "/login", "/login/google", "/auth/callback", "/logout", "/api/me"}
-LOGIN_PAGE = Path(__file__).parent / "static" / "login.html"
 SESSION_USER = "user"
 
 
@@ -70,13 +68,7 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
     )
     domains = settings.auth_allowed_domains
 
-    @app.get("/login", include_in_schema=False)
-    def login_page(request: Request):
-        """The sign-in page; already signed-in users go straight to the dashboard."""
-        if request.session.get(SESSION_USER):
-            return RedirectResponse("/", status_code=302)
-        return FileResponse(LOGIN_PAGE)
-
+    # /login itself is a page of the React app; the backend only starts the OAuth flow.
     @app.get("/login/google", include_in_schema=False)
     async def login(request: Request):
         redirect_uri = str(request.url_for("auth_callback"))

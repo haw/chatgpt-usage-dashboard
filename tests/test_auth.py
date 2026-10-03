@@ -44,7 +44,7 @@ def test_without_login_mode_everything_is_open_and_me_is_anonymous(tmp_path, mon
     from app.web import app
 
     client = TestClient(app)
-    assert client.get("/").status_code == 200
+    assert client.get("/api/dashboard").status_code == 200
     assert client.get("/api/me").json() == {"auth": "none", "user": None, "domains": []}
 
 
@@ -61,9 +61,7 @@ def test_google_mode_requires_login(google_app):
     client = TestClient(google_app.app, follow_redirects=False)
     assert client.get("/health").status_code == 200
     page = client.get("/insights")
-    assert page.status_code == 302 and page.headers["location"] == "/login"
-    login = client.get("/login")
-    assert login.status_code == 200 and "Google でログイン" in login.text  # a page, not an automatic bounce to Google
+    assert page.status_code == 302 and page.headers["location"] == "/login"  # the React app's login page
     assert client.get("/api/dashboard").status_code == 401
     assert client.get("/api/me").json() == {"auth": "google", "user": None, "domains": ["haw.co.jp", "chaintope.com"]}
 
@@ -103,9 +101,6 @@ def test_callback_accepts_company_account_and_rejects_others(google_app, monkeyp
     assert ok.status_code == 302 and ok.headers["location"] == "/insights"
     assert client.get("/api/me").json()["user"] == {"email": "taro@haw.co.jp", "name": "Taro", "picture": "p"}
     assert client.get("/api/dashboard").status_code == 200
-    assert client.get("/").status_code == 200
-    signed_in_login = client.get("/login")
-    assert signed_in_login.status_code == 302 and signed_in_login.headers["location"] == "/"
 
     out = client.get("/logout")
     assert out.status_code == 302 and out.headers["location"] == "/login?logged_out=1"

@@ -8,6 +8,5 @@ data/*
 .git-local/
 docs/analytics-overview-*.csv
 node_modules/
-app/static/vendor/
 *.egg-info/
 docs/analytics-overview-*.json

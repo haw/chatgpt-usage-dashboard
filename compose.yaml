@@ -41,21 +41,6 @@ services:
         condition: service_healthy
     init: true
 
-  collector:
-    build: .
-    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
-    profiles: ["tools"]
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      DATA_DIR: /app/data
-    volumes:
-      - ./data:/app/data
-    entrypoint: ["python", "-m", "app"]
-    command: ["collect", "--days", "7"]
-    init: true
-
   test:
     image: python:3.12-slim
     profiles: ["tools"]
