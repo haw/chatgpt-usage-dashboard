@@ -1,0 +1,51 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths: ["infra/terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/terraform/**", ".github/workflows/terraform.yml"]
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+defaults:
+  run:
+    working-directory: infra/terraform
+
+jobs:
+  # Runs on every PR without AWS credentials.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.4"
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+
+  # Plans against the real account once AWS_ROLE_ARN (repository variable) and
+  # envs/prod.backend.hcl are in place; skipped until then.
+  plan:
+    needs: check
+    if: vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.4"
+      - run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=chatgpt-usage-dashboard/prod/terraform.tfstate" -backend-config="region=ap-northeast-1" -backend-config="use_lockfile=true" -backend-config="encrypt=true"
+      - run: terraform plan -input=false -var="environment=prod" -out=tfplan
+      - if: github.event_name == 'push'
+        run: terraform apply -input=false tfplan

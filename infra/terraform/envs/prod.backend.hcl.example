@@ -1,0 +1,6 @@
+# Copy to prod.backend.hcl (ignored by git). The bucket must exist before `terraform init`.
+bucket       = "haw-terraform-state-REPLACE"
+key          = "chatgpt-usage-dashboard/prod/terraform.tfstate"
+region       = "ap-northeast-1"
+use_lockfile = true
+encrypt      = true

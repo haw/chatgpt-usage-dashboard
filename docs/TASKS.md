@@ -79,10 +79,11 @@
 ## AWS化
 
 - [x] S3ストレージアダプターを追加する
-- [ ] ECS/FargateまたはLambdaの費用比較後に実行基盤をIaC化する
-- [ ] CloudFront、S3、API Gateway、CognitoをIaC化する
-- [ ] GitHub Actions OIDCとAWSデプロイを構成する
-- [ ] 保持期間、暗号化、監視、アラートを設定する
+- [x] Terraform の土台（S3 backend、データバケット、GitHub OIDC デプロイロール）と判断事項の文書（docs/INFRA.md）を用意する
+- [ ] 実行基盤（App Runner / ECS Fargate / Lambda）を決めてモジュール化する
+- [ ] 認証（Cognito）と入口（ドメイン・証明書）を構成する
+- [ ] GitHub Actions でイメージを ECR に push し、承認付きで本番へデプロイする
+- [ ] 保持期間、ログ保持、監視、アラートを設定する
 
 ## 個人別トークン分析
 
