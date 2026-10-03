@@ -14,7 +14,7 @@ terraform {
 
   # Remote state. The bucket is created once by bootstrap/ (`make tf-bootstrap`) and passed in
   # with -backend-config, so this file stays environment-agnostic:
-  #   terraform init -backend-config=envs/prod.backend.hcl
+  #   make tf-init    (terraform init -backend-config=envs/prod.backend.hcl)
   backend "s3" {}
 }
 

@@ -49,77 +49,72 @@ GitHub Actions: main への push → API 画像を ECR へ push し ECS サー�
 - HAW の AWS アカウント（ALB のあるアカウント）の IAM ユーザーのアクセスキー。キーはこのコンテナ専用の Docker ボリューム（`aws_credentials`）だけに保存します。ホストの `~/.aws` はマウントしないので、ホスト側にキーは残らず、コンテナからホストの他のプロファイルも見えません。リポジトリ内のファイル（`.env`、`*.tfvars` など）には書かないでください。
 - GitHub OIDC プロバイダ `token.actions.githubusercontent.com` がアカウントに登録済み（HAW のアカウントには登録済み）。state 用 S3 バケットは `make tf-bootstrap` が作ります（「初回だけ行うこと」参照）。
 
-## コンテナの使い方
+## コマンド（make）
 
-リポジトリのルートで実行します。作業ディレクトリは `infra/terraform`、実行ユーザーはホストの UID です（`.terraform/` などが root 所有になりません）。
+Terraform と AWS CLI はすべて `make` 経由で、コンテナの中で実行します。リポジトリのルートで打ちます。コンテナの作業ディレクトリは `infra/terraform`、実行ユーザーはホストの UID です（`.terraform/` などが root 所有になりません）。
 
-```bash
-docker compose build terraform                                   # 初回とバージョン更新時
-docker compose run --rm terraform aws configure                  # 初回だけ。アクセスキー ID / シークレット / リージョン ap-northeast-1 を入力（ボリュームに保存）
-docker compose run --rm terraform aws sts get-caller-identity    # アカウントを確認
-docker compose run --rm terraform terraform version
-```
+| コマンド | すること |
+|---|---|
+| `make tf-build` | コンテナのイメージを作る（初回とバージョン更新時） |
+| `make aws-configure` | 初回だけ。アクセスキー ID / シークレット / リージョン `ap-northeast-1` を入力（コンテナ専用ボリュームに保存） |
+| `make aws-whoami` | どのアカウント・ユーザーで操作しているか確認 |
+| `make tf-bootstrap` | 初回だけ。state バケットを作り `envs/prod.backend.hcl` を書き出す |
+| `make tf-init` | `terraform init -backend-config=envs/prod.backend.hcl` |
+| `make tf-plan` | `terraform plan -var-file=envs/prod.tfvars` |
+| `make tf-apply` | `terraform apply -var-file=envs/prod.tfvars` |
+| `make tf-output` | `terraform output`。1 つだけ取り出すときは `make -s tf-output ARGS="-raw ecr_repository"` |
+| `make tf-first-image` | 初回だけ。ECR だけ作って API の画像を 1 度 push |
+| `make tf-fmt` / `make tf-check` | 整形 / CI と同じ検査（`fmt -check`・`validate`。AWS 認証不要） |
+| `make tf ARGS="…"` / `make aws ARGS="…"` | 上にない terraform / aws のコマンド（例: `make tf ARGS="state list"`） |
+| `make tf-shell` | コンテナのシェルに入る（terraform、aws、jq、openssl が使えます） |
 
-キーを消すときは `docker volume rm chatgpt_dashboard_aws_credentials`（`docker compose down -v` でも消えます）。入れ替えるときは `aws configure` をもう一度実行します。
-
-短く書くなら `make tf ARGS="plan -var-file=envs/prod.tfvars"`、`make aws ARGS="sts get-caller-identity"`。以下では次の別名を使います。
-
-```bash
-alias tf='docker compose run --rm terraform terraform'
-alias awsc='docker compose run --rm terraform aws'
-```
+- 追加の引数は `ARGS` で渡します（例: `make tf-plan ARGS="-target=aws_ecs_service.api"`）。
+- 環境は `ENV` で切り替えます（既定は `prod`。例: `make tf-plan ENV=staging`）。
+- キーを消すときは `docker volume rm chatgpt_dashboard_aws_credentials`（`docker compose down -v` でも消えます）。入れ替えるときは `make aws-configure` をもう一度実行します。
 
 ## 使い方
 
 ```bash
-cp infra/terraform/envs/prod.tfvars.example infra/terraform/envs/prod.tfvars              # 許可ドメイン、ドメイン、ALB などを編集
-make tf-bootstrap                                                                          # 初回だけ。state バケットを作り envs/prod.backend.hcl を書き出す
-tf init -backend-config=envs/prod.backend.hcl
-tf plan -var-file=envs/prod.tfvars
-tf apply -var-file=envs/prod.tfvars
-tf output
+cp infra/terraform/envs/prod.tfvars.example infra/terraform/envs/prod.tfvars   # 許可ドメイン、ドメイン、ALB などを編集
+make tf-init
+make tf-plan
+make tf-apply
+make tf-output
 ```
 
 ### 初回だけ行うこと（順番どおりに）
 
-1. **state バケット**を作る: `make tf-bootstrap`。このプロジェクト専用のバケット `chatgpt-usage-dashboard-terraform-state-<アカウント ID>`（バージョニング・暗号化・パブリックアクセスブロック・TLS 必須）を [bootstrap/](bootstrap/main.tf) の Terraform で作り、`envs/prod.backend.hcl` を書き出します。作成内容が表示されるので `yes` で確定します。再実行しても変更は出ません。
-   - bootstrap 自身の state はローカルの `bootstrap/terraform.tfstate`（git 管理外）です。なくしても `terraform -chdir=bootstrap import aws_s3_bucket.state <バケット名>` で戻せます。
-2. **GitHub OIDC プロバイダ** `token.actions.githubusercontent.com` が IAM にあることを確認: `awsc iam list-open-id-connect-providers`（HAW のアカウントには登録済み。なければ `awsc iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com`）。
-3. **相乗り先の ALB** `haw-dev-load-balancer`（`ken.haw.biz` や `*.dev.haw.biz` の各アプリが相乗りしている HTTPS:443 リスナー付きの ALB）の ARN を `envs/prod.tfvars` に記入。タスクは既定で ALB と同じサブネットを使うので、サブネットの指定は不要です。
-4. **ECR を先に作る**: ECS サービスは作成時に画像が必要なので、まず ECR だけ適用し、画像を 1 度 push します（`docker` はホストのものを使います）。
-   ```bash
-   tf apply -var-file=envs/prod.tfvars -target=aws_ecr_repository.api -target=aws_iam_role.deploy
-   REPO=$(tf output -raw ecr_repository)
-   awsc ecr get-login-password | docker login --username AWS --password-stdin ${REPO%%/*}
-   docker build -t $REPO:latest . && docker push $REPO:latest      # 以後は CI が push
-   ```
-5. **全体を適用**: `tf apply -var-file=envs/prod.tfvars`（ACM の DNS 検証を含むので数分かかります）。
-6. **シークレットを設定**（Terraform は値を上書きしません）:
+1. **コンテナと認証**: `make tf-build`、`make aws-configure`、`make aws-whoami` でアカウントを確認。
+2. **state バケット**を作る: `make tf-bootstrap`。このプロジェクト専用のバケット `chatgpt-usage-dashboard-terraform-state-<アカウント ID>`（バージョニング・暗号化・パブリックアクセスブロック・TLS 必須）を [bootstrap/](bootstrap/main.tf) の Terraform で作り、`envs/prod.backend.hcl` を書き出します。作成内容が表示されるので `yes` で確定します。再実行しても変更は出ません。
+   - bootstrap 自身の state はローカルの `bootstrap/terraform.tfstate`（git 管理外）です。なくしても `make tf ARGS="-chdir=bootstrap import aws_s3_bucket.state <バケット名>"` で戻せます。
+3. **GitHub OIDC プロバイダ** `token.actions.githubusercontent.com` が IAM にあることを確認: `make aws ARGS="iam list-open-id-connect-providers"`（HAW のアカウントには登録済み。なければ `make aws ARGS="iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com"`）。
+4. **設定ファイル**: `envs/prod.tfvars.example` を `envs/prod.tfvars` にコピーし、相乗り先の ALB `haw-dev-load-balancer`（`ken.haw.biz` や `*.dev.haw.biz` の各アプリが相乗りしている HTTPS:443 リスナー付きの ALB）の ARN などを記入。タスクは既定で ALB と同じサブネットを使うので、サブネットの指定は不要です。続けて `make tf-init`。
+5. **ECR を先に作る**: `make tf-first-image`。ECS サービスは作成時に画像が必要なので、ECR だけ適用し（`yes` で確定）、ホストの `docker` で API の画像を作って 1 度 push します。以後は CI が push します。
+6. **全体を適用**: `make tf-plan` で内容を確認し、`make tf-apply`（ACM の DNS 検証を含むので数分かかります）。
+7. **シークレットを設定**（Terraform は値を上書きしません）。値を打ち込むので `make tf-shell` でコンテナに入って実行します:
    ```bash
    P=/chatgpt-usage-dashboard/prod
-   awsc ssm put-parameter --name $P/GOOGLE_CLIENT_ID     --type SecureString --overwrite --value '<クライアント ID>'
-   awsc ssm put-parameter --name $P/GOOGLE_CLIENT_SECRET --type SecureString --overwrite --value '<クライアント シークレット>'
-   awsc ssm put-parameter --name $P/SESSION_SECRET       --type SecureString --overwrite --value "$(docker compose run --rm terraform openssl rand -hex 32)"
-   awsc ecs update-service --cluster $(tf output -raw ecs_cluster) --service $(tf output -raw ecs_service) --force-new-deployment   # 新しい値でタスクを入れ替える
+   aws ssm put-parameter --name $P/GOOGLE_CLIENT_ID     --type SecureString --overwrite --value '<クライアント ID>'
+   aws ssm put-parameter --name $P/GOOGLE_CLIENT_SECRET --type SecureString --overwrite --value '<クライアント シークレット>'
+   aws ssm put-parameter --name $P/SESSION_SECRET       --type SecureString --overwrite --value "$(openssl rand -hex 32)"
+   aws ecs update-service --cluster $(terraform output -raw ecs_cluster) --service $(terraform output -raw ecs_service) --force-new-deployment   # 新しい値でタスクを入れ替える
    ```
-7. **Google Cloud** の OAuth クライアントに `tf output -raw oauth_redirect_uri` を「承認済みのリダイレクト URI」として追加。
-8. **GitHub のリポジトリ変数**を設定し、`prod` Environment に承認者を設定:
+8. **Google Cloud** の OAuth クライアントに `make -s tf-output ARGS="-raw oauth_redirect_uri"` の値を「承認済みのリダイレクト URI」として追加。
+9. **GitHub のリポジトリ変数**を設定し、`prod` Environment に承認者を設定。値は `make tf-output` の一覧にあります:
 
-   | 変数 | 値 |
+   | 変数 | `make tf-output` の項目 |
    |---|---|
-   | `AWS_ROLE_ARN` | `tf output -raw deploy_role_arn` |
-   | `TF_STATE_BUCKET` | `tf -chdir=bootstrap output -raw state_bucket` |
-   | `ECR_REPOSITORY` | `tf output -raw ecr_repository` |
-   | `FRONTEND_BUCKET` | `tf output -raw frontend_bucket` |
-   | `CLOUDFRONT_DISTRIBUTION_ID` | `tf output -raw cloudfront_distribution_id` |
-   | `ECS_SERVICE` | `tf output -raw ecs_service` |
-   | `ECS_CLUSTER` | `tf output -raw ecs_cluster` |
+   | `AWS_ROLE_ARN` | `deploy_role_arn` |
+   | `TF_STATE_BUCKET` | `envs/prod.backend.hcl` の `bucket`（`make -s tf ARGS="-chdir=bootstrap output -raw state_bucket"`） |
+   | `ECR_REPOSITORY` | `ecr_repository` |
+   | `FRONTEND_BUCKET` | `frontend_bucket` |
+   | `CLOUDFRONT_DISTRIBUTION_ID` | `cloudfront_distribution_id` |
+   | `ECS_SERVICE` | `ecs_service` |
+   | `ECS_CLUSTER` | `ecs_cluster` |
 
-9. `main` に push すると `deploy.yml` が画像と画面を配信します（初回は `workflow_dispatch` で手動実行も可）。`tf output -raw dashboard_url` を開いて確認。
+10. `main` に push すると `deploy.yml` が画像と画面を配信します（初回は `workflow_dispatch` で手動実行も可）。`make tf-output` の `dashboard_url` を開いて確認。
 
-別環境（staging など）は `envs/staging.tfvars` を用意して `environment = "staging"` にし、`make tf-bootstrap ENV=staging` で `envs/staging.backend.hcl` を書き出します（バケットは共通で、`key` だけが変わります）。
-
-整形と検証だけなら AWS 認証なしで実行できます: `docker compose run --rm terraform sh -c 'terraform fmt -check -recursive && terraform init -backend=false && terraform validate'`。
+別環境（staging など）は `envs/staging.tfvars` を用意して `environment = "staging"` にし、`make tf-bootstrap ENV=staging` で `envs/staging.backend.hcl` を書き出します（バケットは共通で、`key` だけが変わります）。以後のコマンドにも `ENV=staging` を付けます。
 
 ## CI/CD
 

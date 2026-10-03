@@ -190,4 +190,4 @@ API のテストは実データやネットワークを使わず、合成 fixtur
 
 ## 本番環境
 
-本番環境（AWS）は Terraform で構築し、GitHub Actions から OIDC でデプロイします。構成・対象・使い方・判断事項は [infra/terraform/README.md](infra/terraform/README.md) にまとめています。Terraform と AWS CLI は専用コンテナで実行します（`docker compose run --rm terraform terraform plan …`、`make tf ARGS="…"`）。
+本番環境（AWS）は Terraform で構築し、GitHub Actions から OIDC でデプロイします。構成・対象・使い方・判断事項は [infra/terraform/README.md](infra/terraform/README.md) にまとめています。Terraform と AWS CLI は専用コンテナで、`make tf-plan` / `make tf-apply` などの make コマンドから実行します。

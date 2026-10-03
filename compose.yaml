@@ -43,8 +43,8 @@ services:
 
   # Terraform + AWS CLI (infra/terraform). The AWS access key lives only in the `aws_credentials` volume,
   # not in the host's ~/.aws, and the container cannot see the host's other AWS profiles:
-  #   docker compose run --rm terraform aws configure      # once; stored in the volume
-  #   docker compose run --rm terraform terraform plan -var-file=envs/prod.tfvars
+  #   make aws-configure      # once; stored in the volume
+  #   make tf-plan            # see the tf-* targets in the Makefile
   terraform:
     build:
       context: ./infra/terraform
