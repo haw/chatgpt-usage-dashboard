@@ -100,17 +100,18 @@ make tf-output
    aws ecs update-service --cluster $(terraform output -raw ecs_cluster) --service $(terraform output -raw ecs_service) --force-new-deployment   # 新しい値でタスクを入れ替える
    ```
 8. **Google Cloud** の OAuth クライアントに `make -s tf-output ARGS="-raw oauth_redirect_uri"` の値を「承認済みのリダイレクト URI」として追加。
-9. **GitHub のリポジトリ変数**を設定し、`prod` Environment に承認者を設定。値は `make tf-output` の一覧にあります:
+9. **GitHub のリポジトリ変数**を設定（アプリの配信 `deploy.yml` 用）。値は `make tf-output` の一覧にあります:
 
    | 変数 | `make tf-output` の項目 |
    |---|---|
    | `AWS_ROLE_ARN` | `deploy_role_arn` |
-   | `TF_STATE_BUCKET` | `envs/prod.backend.hcl` の `bucket`（`make -s tf ARGS="-chdir=bootstrap output -raw state_bucket"`） |
    | `ECR_REPOSITORY` | `ecr_repository` |
    | `FRONTEND_BUCKET` | `frontend_bucket` |
    | `CLOUDFRONT_DISTRIBUTION_ID` | `cloudfront_distribution_id` |
    | `ECS_SERVICE` | `ecs_service` |
    | `ECS_CLUSTER` | `ecs_cluster` |
+
+   配信の前に人の承認を挟みたい場合は、GitHub の `prod` Environment に承認者を設定します（任意）。
 
 10. `main` に push すると `deploy.yml` が画像と画面を配信します（初回は `workflow_dispatch` で手動実行も可）。`make tf-output` の `dashboard_url` を開いて確認。
 
@@ -121,10 +122,12 @@ make tf-output
 | ワークフロー | きっかけ | 実行内容 | 必要なもの |
 |---|---|---|---|
 | `ci.yml` | PR / main | pytest、Docker ビルド、画面の typecheck・build・テスト | なし |
-| `terraform.yml` | `infra/terraform/**` の変更 | PR: `fmt -check` / `validate`。main: OIDC で `plan` → `prod` 承認 → `apply` | `AWS_ROLE_ARN`、`TF_STATE_BUCKET` |
+| `terraform.yml` | `infra/terraform/**` の変更 | `fmt -check` / `validate` だけ（AWS には触らない） | なし |
 | `deploy.yml` | main への push / 手動 | API 画像を ECR へ push し、ECS サービスを再デプロイして安定するまで待機。画面をビルドして S3 へ同期、CloudFront を無効化 | 上の表の変数すべて |
 
-変数が未設定の間はジョブがスキップされるので、土台だけの状態でも CI は通ります。
+`deploy.yml` は変数が未設定の間ジョブがスキップされるので、土台だけの状態でも CI は通ります。
+
+Terraform の `plan` / `apply` は CI では行いません。担当者が手元のコンテナから `make tf-plan` / `make tf-apply` で実行します。CI が使うロール（`deploy_role_arn`）の権限はアプリの配信（ECR への push、画面用 S3 の更新、CloudFront の無効化、ECS の再デプロイ）だけで、インフラを変更する権限は持たせていません。
 
 ## 費用の目安（東京、月額）
 Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM・ログは利用量が小さく合計 $1〜2。ALB は既存のものに相乗り（ルール・証明書は無料）、ACM 証明書も無料。合計 **約 $10〜11/月**。
@@ -138,7 +141,7 @@ Fargate 0.25 vCPU / 0.5 GB × 1 タスク 約 $9、CloudFront・S3・ECR・SSM�
 | 実行基盤 | 既存 ALB に相乗りする ECS Fargate（API）、S3 + CloudFront（画面） | 画面と API を分離。App Runner は新規利用不可、ECS Express Mode は ALB の固定費が乗るため |
 | 認証 | アプリ内の Google Workspace OAuth（社内の TARO・KEN と同じ型）。シークレットは SSM | 社内実績あり |
 | ドメイン | `chatgpt-dashboard.dev.haw.biz`（`dev.haw.biz` は Route53 の委任済みゾーン） | 要望 |
-| デプロイ | GitHub Actions OIDC → IAM ロール。鍵を置かない | 標準的 |
+| デプロイ | アプリの配信は GitHub Actions OIDC → IAM ロール（鍵を置かない）。インフラの `apply` は CI に任せず担当者が実行 | CI に強い権限を持たせない |
 | データ | S3 バケット 1 つ。アプリは `STORAGE_BACKEND=s3` | 既存アダプター |
 
 ## 参考にした社内リポジトリ

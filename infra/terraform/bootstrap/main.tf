@@ -106,7 +106,7 @@ resource "aws_s3_bucket_policy" "state" {
 }
 
 output "state_bucket" {
-  description = "Bucket holding the Terraform state (also the TF_STATE_BUCKET repository variable)."
+  description = "Bucket holding the Terraform state."
   value       = aws_s3_bucket.state.id
 }
 
