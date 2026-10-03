@@ -200,6 +200,25 @@ document.querySelector('#settings-reset').addEventListener('click', () => {
 });
 
 document.querySelector('#reset-range').addEventListener('click', () => load());
+// Day kind: clicking the date cell or the kind badge flips holiday/workday for that date (stored per browser).
+document.querySelector('#daily-table').addEventListener('click', event => {
+  const target = event.target.closest('.day-kind-toggle');
+  if (target) toggleDayOverride(target.dataset.date, target.dataset.auto);
+});
+document.querySelector('#day-override-list').addEventListener('click', event => {
+  const button = event.target.closest('.day-override-remove');
+  if (!button) return;
+  delete dayOverrides[button.dataset.date];
+  persistDayOverrides();
+  renderDayOverrideList();
+  reloadAll();
+});
+document.querySelector('#day-override-clear').addEventListener('click', () => {
+  dayOverrides = {};
+  persistDayOverrides();
+  renderDayOverrideList();
+  reloadAll();
+});
 let sensitivityTimer = null;
 document.querySelector('#sensitivity-slider').addEventListener('input', event => {
   const next = SENSITIVITY_STEPS[Number(event.target.value)].value;
@@ -528,7 +547,7 @@ const items=[...current].sort().reverse().map(d=>{const strong=alerts.filter(x=>
 const title=changed?`感度を ${esc(state.label)} → ${esc(sensitivityLabel(sensitivity))} に変更: 検出 ${current.size}日${added.size?`（<span class="tag-new">新たに ${added.size}日</span>）`:dropped?`（${dropped}日減）`:'（変化なし）'}`:`現在の判定で検出された日: ${current.size}日`;
 el.innerHTML=`<p class="delta-title">${title}</p><ul>${items.join('')}</ul>`;el.className='signal-delta';return added}
 function renderAlerts(rows){currentAlerts=rows;renderDelta(rows)}
-function renderTable(rows,alerts=[]){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="10" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>`<tr class="${row.day_kind==='holiday'?'holiday-row':''}"><td>${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${signalBadge(row.date,alerts)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`).join('')}
+function renderTable(rows,alerts=[]){const el=document.querySelector('#daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="10" class="empty">指定期間にデータがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const kind=row.day_kind||'workday';const source=row.day_kind_source||'weekday';const auto=source==='override'?(kind==='holiday'?'workday':'holiday'):kind;return `<tr class="${kind==='holiday'?'holiday-row':'workday-row'}"><td class="day-cell day-kind-toggle" data-date="${esc(row.date)}" data-auto="${esc(auto)}" title="クリックで${kind==='holiday'?'平日':'休日'}に切替（このブラウザだけに保存）">${esc(row.date)} ${weekday(row.date)}</td>${dayKindCell(row)}${signalBadge(row.date,alerts)}${products.map(p=>`<td>${formatOptional(row.active_users?.[p])}</td>`).join('')}${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td></tr>`}).join('')}
 function renderIndividualTable(rows){const el=document.querySelector('#individual-daily-table');if(!rows.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...rows].reverse().map(row=>{const agentTokens=row.tokens.codex+row.tokens.work;return `<tr><td>${esc(row.date)} ${weekday(row.date)}</td>${products.map(p=>`<td>${formatOptional(row.tokens?.[p])}</td>`).join('')}<td><strong>${formatOptional(row.tokens?.total)}</strong></td><td>${fmt.format(agentTokens)}</td>${limitCells(agentTokens,limitSettings.fiveHour)}</tr>`}).join('')}
 function renderIndividualWeeklyTable(rows){const el=document.querySelector('#individual-weekly-table');const weeks=buildWeeklyRows(rows);if(!weeks.length){el.innerHTML='<tr><td colspan="8" class="empty">データがありません</td></tr>';return}el.innerHTML=[...weeks].reverse().map(row=>`<tr><td>${esc(row.start)} – ${esc(row.end)}</td>${products.map(p=>`<td>${fmt.format(row[p])}</td>`).join('')}<td><strong>${fmt.format(row.total)}</strong></td><td>${fmt.format(row.agentTokens)}</td>${limitCells(row.agentTokens,limitSettings.weekly)}</tr>`).join('')}
 function setImportMessage(text,kind){const el=document.querySelector('#import-message');el.textContent=text;el.className=`message ${kind}`}

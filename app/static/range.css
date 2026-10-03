@@ -65,11 +65,15 @@
 #detector-errors { margin-bottom:12px; white-space:pre-line }
 .day-kind { display:inline-flex; flex-direction:column; align-items:center; gap:1px; padding:3px 9px; border:1px solid var(--line); border-radius:8px; background:#f0eee8; color:var(--muted); font-size:.72rem; font-weight:700; line-height:1.1 }
 .day-kind small { font-size:.58rem; font-weight:500; color:var(--muted) }
-.day-kind.holiday { background:#f8e9d0; color:#ad5c19 }
+.day-kind.holiday { background:#f6dcd7; color:var(--red) }
 .day-kind.override { border-color:#7faa97; box-shadow:0 0 0 2px #e3f0e9 }
 .day-kind-toggle { cursor:pointer }
-.holiday-row td:first-child { color:#ad5c19 }
-.axis-label.holiday { fill:#ad5c19 }
+.holiday-row td:first-child, .holiday-row .weekday, .holiday-row .day-kind { color:var(--red); font-weight:700 }
+.holiday-row .day-kind { background:#f6dcd7; border-color:#e8b4ab }
+.holiday-row .day-kind small { color:var(--red); font-weight:600 }
+.day-cell { cursor:pointer; user-select:none }
+.day-cell:hover { text-decoration:underline dotted }
+.axis-label.holiday { fill:var(--red) }
 .settings-section { margin-top:18px; padding-top:14px; border-top:1px solid var(--line) }
 .settings-section h3 { margin:0 0 4px; font-size:.95rem }
 .day-override-list { list-style:none; margin:10px 0; padding:0; display:grid; gap:6px; max-height:200px; overflow:auto }
