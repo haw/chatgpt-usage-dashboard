@@ -7,7 +7,7 @@ import { colors } from '../theme'
 const TIER = {
   today: { label: '優先', bg: colors.red, color: '#fff', border: colors.red },
   week: { label: '次に', bg: '#f6dcd7', color: colors.red, border: '#d9a9a2' },
-  reference: { label: '確認済み', bg: '#e6ebe8', color: colors.muted, border: colors.line },
+  reference: { label: '参考', bg: '#e6ebe8', color: colors.muted, border: colors.line },
 } as const
 
 interface Props {
@@ -19,7 +19,7 @@ interface Props {
 
 export default function TriageEntryCard({ entry, busy, onMark, onInspect }: Props) {
   const f = entry.facts
-  const tier = TIER[entry.tier]
+  const tier = entry.disposition ? { ...TIER.reference, label: '確認済み' } : TIER[entry.tier]
   const facts = [kindLabel(f.kind, f.kind_source), f.max_dau != null ? `DAU ${fmt(f.max_dau)}` : null, f.total_tokens != null ? `${compact(f.total_tokens)} tokens` : null].filter(Boolean)
   const checked = Boolean(entry.disposition)
   const strong = entry.observations.filter((o) => o.severity !== 'info')

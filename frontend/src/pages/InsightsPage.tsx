@@ -32,6 +32,9 @@ export default function InsightsPage() {
   const status = data?.status
   const entries = new Map<string, TriageEntry>([...(data?.today ?? []), ...(data?.week ?? []), ...(data?.reference ?? [])].map((e) => [e.date, e]))
   const selected = date ? entries.get(date) : undefined
+  // The API's reference tier holds both checked days and days with only below-threshold observations.
+  const checked = (data?.reference ?? []).filter((e) => e.disposition)
+  const weak = (data?.reference ?? []).filter((e) => !e.disposition)
 
   const list = (items: TriageEntry[], empty: string) =>
     items.length ? (
@@ -88,7 +91,7 @@ export default function InsightsPage() {
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flex: 1 }}>
             <Typography variant="overline">CHECKED</Typography>
             <Typography variant="h2">確認済み</Typography>
-            {data?.reference.length ? <Chip label={`${data.reference.length}日`} size="small" /> : null}
+            {checked.length ? <Chip label={`${checked.length}日`} size="small" /> : null}
             {status?.checked_days ? (
               <Button size="small" variant="outlined" disabled={reset.isPending} onClick={(event) => { event.stopPropagation(); reset.mutate() }} sx={{ ml: 'auto' }}>
                 確認済み {status.checked_days}日をすべて解除
@@ -96,7 +99,18 @@ export default function InsightsPage() {
             ) : null}
           </Stack>
         </AccordionSummary>
-        <AccordionDetails>{list(data?.reference ?? [], '確認済みの日はありません')}</AccordionDetails>
+        <AccordionDetails>{list(checked, '確認済みの日はありません')}</AccordionDetails>
+      </Accordion>
+      <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flex: 1 }}>
+            <Typography variant="overline">REFERENCE</Typography>
+            <Typography variant="h2">参考</Typography>
+            {weak.length ? <Chip label={`${weak.length}日`} size="small" /> : null}
+            <Typography variant="caption" color="text.secondary">判定ラインは超えていないが、普段より大きく上振れした兆候だけの日</Typography>
+          </Stack>
+        </AccordionSummary>
+        <AccordionDetails>{list(weak, '参考の日はありません')}</AccordionDetails>
       </Accordion>
       <ContextDialog entry={selected} entries={[...entries.values()]} open={Boolean(date)} onClose={() => navigate('/insights')} />
     </Stack>
