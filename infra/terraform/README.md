@@ -121,12 +121,16 @@ DATA_DIR=/app/data
 | ECS Fargate + ALB | ALB 約 $20〜25 + タスク約 $10 | ALB の Cognito 認証が使える（アプリ改修なし） | 常時起動で最も高い。VPC・サブネット・SG が必要 |
 | Lambda Web Adapter + API Gateway + CloudFront | ほぼ従量（$1 未満〜） | 最安 | コールドスタート。5 MiB アップロードは API Gateway の上限 10 MB 内だが要確認 |
 
-推奨: **App Runner**（運用の手数とコストの均衡）。
+社内の参照先: TARO と日報は IaC なし（日報は Engine Yard / EC2 + Capistrano、TARO は Dockerfile + GitHub Actions の CI のみ）。chaintope の Terraform モジュール（`tapyrus-terraform-modules` の `dashboard` / `dashboard_cdn` / `dashboard_monitoring`、`chocolateshop-terraform` の `modules/{vpc,ecr,alb,ecs,s3,waf,cloudfront}`）は **ECS Fargate + ALB + CloudFront** の型。
+
+推奨: 認証をアプリ内の Google OAuth で行うなら ALB の認証機能は不要なので、**App Runner** が最も軽い。chaintope のモジュールと運用（監視・Slack 通知・WAF）を流用したい場合は ECS Fargate + ALB + CloudFront を選び、不要な変数（Rails / MySQL / tapyrusd）を削ったモジュールを `modules/` に起こす。
 
 ### 2. 認証
-- Cognito User Pool（社内メール。必要なら Google / Microsoft とフェデレーション）。
-- 検証する場所: (a) ALB（ECS 案のみ）、(b) CloudFront + Lambda@Edge / CloudFront Functions、(c) アプリ内ミドルウェア（Authorization Code + PKCE、セッション Cookie）。
-- App Runner 案なら (c) が最小。アプリに `AUTH_MODE=cognito` を追加し、ローカルは `none` のまま。
+社内システム（TARO、日報 KEN）はどちらも **Google Workspace の OAuth**（omniauth google_oauth2、Google Cloud 側で「組織内のみ」のクライアント）でログインしており、Cognito は使っていない。日報は加えて Rack レベルの IP 制限（`config/access.yml`）を持つ。
+
+推奨: 社内の型に合わせ、**アプリ内で Google OAuth（Authorization Code、許可ドメイン `haw.co.jp`、セッション Cookie）** を行う。アプリに `AUTH_MODE=google|none` を追加し、ローカルは `none` のまま。クライアント ID / シークレットは Secrets Manager か SSM Parameter Store に置き、実行基盤のロールで読む。IP 制限が必要なら WAF（CloudFront / ALB）または同じミドルウェアで行う。
+
+代案（社内実績なし）: Cognito User Pool を ALB で検証（ECS 案のみ。SPA の `fetch` と相性が悪い点は haw/cognito-alb-auth-demo の知見を参照）、または CloudFront + Lambda@Edge。
 
 ### 3. ドメインと証明書
 - 社内 DNS かパブリックドメインか。ACM 証明書は CloudFront を使うなら us-east-1、それ以外は ap-northeast-1。
@@ -137,6 +141,18 @@ DATA_DIR=/app/data
 
 ### 5. 環境
 - prod のみか、staging も持つか。
+
+## 参考にした社内リポジトリ
+
+| リポジトリ | 何を参考にするか |
+|---|---|
+| haw/taro | Google OAuth（omniauth google_oauth2、`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` を環境変数で）、Dockerfile、GitHub Actions の CI |
+| haw/daily_report（KEN） | Google OAuth（credentials 管理）、ログイン時にメールでスタッフを突き合わせる流れ、Rack の IP 制限、本番は Engine Yard（https://ken.haw.biz/） |
+| chaintope/tapyrus-terraform-modules | `dashboard`（ECS Fargate + ALB + タスク定義 + Secrets Manager）、`dashboard_cdn`（CloudFront + S3 + ACM + Route53）、`dashboard_monitoring`、`slack_chatbot`、`waf` |
+| chaintope/chocolateshop-terraform | `environments/<env>` + `modules/` の構成、backend と state キーの規約、タグ戦略、ECS タスクロールへの S3 権限の付け方 |
+| haw/cognito-alb-auth-demo | ALB の Cognito 認証と SPA の `fetch` の相性問題と、その回避策 |
+
+haw 組織に Terraform のテンプレートリポジトリは存在しない（インフラ系は CDK）。
 
 ## 手動で 1 回だけ行うこと
 
