@@ -94,8 +94,9 @@ def test_callback_accepts_company_account_and_rejects_others(google_app, monkeyp
     assert client.get("/").status_code == 200
 
     out = client.get("/logout")
-    assert out.status_code == 302 and out.headers["location"] == "/login"
+    assert out.status_code == 200 and "ログアウトしました" in out.text  # a page, not a bounce back into Google
     assert client.get("/api/dashboard").status_code == 401
+    assert client.get("/api/me").json()["user"] is None
 
 
 def test_login_redirects_to_google_with_hosted_domain(google_app, monkeypatch):
@@ -104,8 +105,9 @@ def test_login_redirects_to_google_with_hosted_domain(google_app, monkeypatch):
     client = TestClient(module.app, follow_redirects=False)
     monkeypatch.setattr(module.oauth.google, "authorize_redirect",
                         AsyncMock(side_effect=lambda request, redirect_uri, **kw: __import__("fastapi").responses.RedirectResponse(
-                            f"https://accounts.google.com/o/oauth2/auth?redirect_uri={redirect_uri}&hd={kw.get('hd', '')}", status_code=302)))
+                            f"https://accounts.google.com/o/oauth2/auth?redirect_uri={redirect_uri}&hd={kw.get('hd', '')}&prompt={kw.get('prompt', '')}", status_code=302)))
     response = client.get("/login")
     assert response.status_code == 302
     assert "hd=haw.co.jp" in response.headers["location"]
+    assert "prompt=select_account" in response.headers["location"]
     assert "redirect_uri=http://testserver/auth/callback" in response.headers["location"]

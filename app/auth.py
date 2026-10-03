@@ -12,7 +12,7 @@ from typing import Any
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -21,6 +21,13 @@ from app.config import Settings
 GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
 PUBLIC_PATHS = {"/health", "/login", "/auth/callback", "/logout", "/api/me"}
 SESSION_USER = "user"
+
+
+LOGGED_OUT_PAGE = """<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ログアウトしました</title><link rel="stylesheet" href="/static/styles.css"></head>
+<body><main style="max-width:480px;margin:12vh auto;text-align:center"><p class="eyebrow">SIGNED OUT</p><h1 style="font-size:1.6rem">ログアウトしました</h1>
+<p class="muted">このダッシュボードのセッションを終了しました。Google アカウント自体からはログアウトしていません。</p>
+<p><a href="/login" class="reset-range" style="display:inline-block;padding:10px 18px;text-decoration:none">別のアカウントでログイン</a></p></main></body></html>"""
 
 
 def allowed_email(email: str | None, domains: tuple[str, ...]) -> bool:
@@ -72,7 +79,9 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
         redirect_uri = str(request.url_for("auth_callback"))
         if settings.base_url:  # behind a proxy the request host may be internal
             redirect_uri = settings.base_url.rstrip("/") + "/auth/callback"
-        extra = {"hd": domains[0]} if len(domains) == 1 else {}  # pre-select the Workspace account picker
+        extra = {"prompt": "select_account"}  # always show the chooser, so logging out really means logging out
+        if len(domains) == 1:
+            extra["hd"] = domains[0]  # narrow the chooser to the Workspace domain
         return await oauth.google.authorize_redirect(request, redirect_uri, **extra)
 
     @app.get("/auth/callback", include_in_schema=False, name="auth_callback")
@@ -92,8 +101,9 @@ def install(app: FastAPI, settings: Settings) -> OAuth | None:
 
     @app.get("/logout", include_in_schema=False)
     def logout(request: Request):
+        # Stop here instead of bouncing to /login, which would silently sign the same Google account back in.
         request.session.clear()
-        return RedirectResponse("/login", status_code=302)
+        return HTMLResponse(LOGGED_OUT_PAGE)
 
     @app.get("/api/me")
     def me(request: Request) -> dict:
