@@ -46,12 +46,28 @@ export default function BoxPlotChart({ signal, rows, date, kind, entries }: Prop
   const refLabel = signal.detector === 'dau_increase' ? 'これまでの最多' : signal.detector === 'holiday_usage' ? '平日の中央値' : '中央値'
   const refValue = signal.detector === 'dau_increase' ? signal.baseline : model.box[2]
   const max = Math.max(1, model.dayValue, signal.threshold ?? 0, ...model.sorted) * 1.08
+  // Reference lines are drawn as two-point line series on a hidden 0..1 axis, so their labels stay horizontal
+  // (a vertical markLine would rotate its label along the line).
+  const verticalLine = (value: number, color: string, type: 'dotted' | 'dashed', label: string, position: 'top' | 'bottom') => ({
+    type: 'line',
+    yAxisIndex: 1,
+    data: [[value, 0], [value, 1]],
+    symbol: 'none',
+    silent: true,
+    lineStyle: { type, color, width: type === 'dotted' ? 2 : 1.5 },
+    endLabel: position === 'top' ? { show: true, formatter: label, color, fontSize: 11, offset: [0, -2], align: 'center', verticalAlign: 'bottom' } : undefined,
+    label: position === 'bottom' ? { show: true, position: 'bottom', formatter: (p: { dataIndex: number }) => (p.dataIndex === 0 ? label : ''), color, fontSize: 11, distance: 4 } : undefined,
+    tooltip: { show: false },
+  })
   const option = {
     animation: false,
-    grid: { left: 20, right: 20, top: 26, bottom: 28 },
+    grid: { left: 20, right: 20, top: 30, bottom: 34 },
     tooltip: { trigger: 'item' },
     xAxis: { type: 'value', min: 0, max, axisLabel: { formatter: (v: number) => compact(v) }, splitLine: { lineStyle: { color: '#ebe7df' } } },
-    yAxis: { type: 'category', data: [''], axisLine: { show: false }, axisTick: { show: false } },
+    yAxis: [
+      { type: 'category', data: [''], axisLine: { show: false }, axisTick: { show: false } },
+      { type: 'value', min: 0, max: 1, show: false },
+    ],
     series: [
       {
         type: 'boxplot',
@@ -59,17 +75,11 @@ export default function BoxPlotChart({ signal, rows, date, kind, entries }: Prop
         itemStyle: { color: 'rgba(52,120,164,0.18)', borderColor: colors.codex, borderWidth: 1.5 },
         boxWidth: ['40%', '40%'],
         tooltip: { formatter: () => `基準 ${model.sorted.length}日: 最小 ${compact(model.box[0])} / 25% ${compact(model.box[1])} / 中央値 ${compact(model.box[2])} / 75% ${compact(model.box[3])} / 最大 ${compact(model.box[4])}` },
-        markLine: {
-          symbol: 'none',
-          silent: true,
-          data: [
-            ...(signal.threshold != null ? [{ xAxis: signal.threshold, lineStyle: { type: 'dotted', color: '#b8651b', width: 2 }, label: { formatter: `判定ライン ${compact(signal.threshold)}`, position: 'insideEndTop', color: '#b8651b' } }] : []),
-            ...(refValue != null ? [{ xAxis: refValue, lineStyle: { type: 'dashed', color: '#68736c', width: 1.5 }, label: { formatter: `${refLabel} ${compact(refValue)}`, position: 'insideEndBottom', color: '#68736c' } }] : []),
-          ],
-        },
       },
+      ...(signal.threshold != null ? [verticalLine(signal.threshold, '#b8651b', 'dotted', `判定ライン ${compact(signal.threshold)}`, 'top')] : []),
+      ...(refValue != null ? [verticalLine(refValue, '#68736c', 'dashed', `${refLabel} ${compact(refValue)}`, 'bottom')] : []),
       { type: 'scatter', data: model.outliers.map((p) => [p.value, 0]), symbolSize: 7, itemStyle: { color: colors.codex }, tooltip: { formatter: (item: { dataIndex: number }) => `${model.outliers[item.dataIndex].date} ${fmt(Math.round(model.outliers[item.dataIndex].value))}` } },
-      { type: 'scatter', data: [[model.dayValue, 0]], symbol: 'diamond', symbolSize: 20, itemStyle: { color: colors.red, borderColor: '#fff', borderWidth: 1.5 }, label: { show: true, position: 'bottom', formatter: `この日 ${compact(model.dayValue)}`, color: colors.red, fontWeight: 'bold' }, tooltip: { formatter: () => `${date} ${fmt(Math.round(model.dayValue!))}` } },
+      { type: 'scatter', data: [[model.dayValue, 0]], symbol: 'diamond', symbolSize: 20, itemStyle: { color: colors.red, borderColor: '#fff', borderWidth: 1.5 }, label: { show: true, position: 'top', formatter: `この日 ${compact(model.dayValue)}`, color: colors.red, fontWeight: 'bold' }, tooltip: { formatter: () => `${date} ${fmt(Math.round(model.dayValue!))}` } },
     ],
   }
   return (
