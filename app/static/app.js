@@ -885,44 +885,8 @@ function readingFacts(entry) {
   };
 }
 
-// What each detector measures, in plain words.
-function plainMetric(o) {
-  const p = o.product ? o.product.toUpperCase() : '全製品';
-  switch (o.detector) {
-    case 'tokens_per_user': return `${p}の1人あたり利用量`;
-    case 'dau_change': case 'dau_increase': return `${p}の利用者数`;
-    case 'holiday_usage': return '休日の利用量';
-    default: return `${p}の利用量`;
-  }
-}
-
-// Built only from the numbers, in words someone without statistics can follow.
-function templateReading(facts) {
-  const obs = facts.observations;
-  if (!obs.length) return `${facts.date}は判定ラインを超えた観点がなく、確認の対象ではありません。`;
-  const parts = [`${facts.date}（${facts.kind}${facts.dau != null ? `、利用者 最大${fmt.format(facts.dau)}人` : ''}）は、`];
-  parts.push(obs.map(o => {
-    let how;
-    if (o.detector === 'holiday_usage') how = `平日の${Math.round(o.ratio * 100)}%に相当`;
-    else if (o.detector === 'dau_increase') how = `直近28日で最も多い${fmt.format(o.value)}人`;
-    else if (o.detector === 'dau_change') how = o.value < o.usual ? `普段の${fmt.format(o.usual)}人から${fmt.format(o.value)}人に減少` : `普段の${fmt.format(o.usual)}人から${fmt.format(o.value)}人に増加`;
-    else if (o.ratio && o.usual) how = `普段の${o.ratio}倍`;
-    else if (o.usual === 0) how = facts.kind === '平日' ? '普段は利用がないのに利用あり' : '休日なのに利用あり';
-    else how = '普段より多い';
-    const strength = o.sd != null ? (o.sd >= 7 ? '偶然ではまず起きない大きさ' : o.sd >= 3.5 ? '偶然の揺れとしては珍しい大きさ' : '揺れの範囲に近い大きさ') : '';
-    return `${o.what}が${how}${strength ? `（${strength}）` : ''}`;
-  }).join('、'));
-  parts.push('でした。');
-  const multi = obs.length >= 2 ? `${obs.length}つの観点が同じ日に重なっているため、1つだけの場合より確認する価値があります。` : '観点は1つなので、単発の揺れの可能性も残ります。';
-  const streak = Math.max(...obs.map(o => o.streak || 0));
-  const cont = streak > 1 ? `同じ傾向が${streak}日続いています。` : '';
-  const holiday = facts.kind !== '平日' ? '休日の利用は、休日出勤やイベントなど業務上の理由がないか確認してください。' : '';
-  return parts.join('') + multi + cont + holiday;
-}
-
 function renderReading(entry) {
   const facts = readingFacts(entry);
-  document.querySelector('#ai-template').textContent = templateReading(facts);
   const output = document.querySelector('#ai-output');
   output.hidden = true; output.textContent = '';
   const button = document.querySelector('#ai-generate');
