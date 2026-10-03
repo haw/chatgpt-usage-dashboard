@@ -89,8 +89,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 }
 
 locals {
-  apprunner_host = replace(aws_apprunner_service.api.service_url, "https://", "")
-  use_domain     = var.domain_name != ""
+  use_domain = var.domain_name != ""
 }
 
 resource "aws_cloudfront_distribution" "dashboard" {
@@ -110,7 +109,7 @@ resource "aws_cloudfront_distribution" "dashboard" {
 
   origin {
     origin_id   = "api"
-    domain_name = local.apprunner_host
+    domain_name = local.api_host
     custom_origin_config {
       http_port              = 80
       https_port             = 443

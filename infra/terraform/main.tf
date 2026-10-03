@@ -1,10 +1,10 @@
 # Production infrastructure for the dashboard.
 #
-#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── App Runner (API image from ECR)
+#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── ECS Express Mode (API image from ECR)
 #                                   └── everything else ──────────────────────────────── S3 (built React app, private)
 #
 # This file holds what every piece shares: naming, the data bucket the API writes to
-# and the GitHub OIDC deploy role. See ecr.tf, apprunner.tf, frontend.tf, secrets.tf, domain.tf.
+# and the GitHub OIDC deploy role. See ecr.tf, ecs.tf, frontend.tf, secrets.tf, domain.tf.
 
 data "aws_caller_identity" "current" {}
 
@@ -128,10 +128,16 @@ data "aws_iam_policy_document" "deploy" {
     resources = [aws_cloudfront_distribution.dashboard.arn]
   }
   statement {
-    sid       = "AppRunnerDeploy"
+    sid       = "EcsRollout"
     effect    = "Allow"
-    actions   = ["apprunner:StartDeployment", "apprunner:DescribeService", "apprunner:ListOperations"]
-    resources = [aws_apprunner_service.api.arn]
+    actions   = ["ecs:UpdateExpressGatewayService", "ecs:DescribeExpressGatewayService", "ecs:DescribeServices"]
+    resources = ["*"] # Express service ARNs are not predictable before creation; the role is only assumable from this repo
+  }
+  statement {
+    sid       = "EcsPassRoles"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.execution.arn, aws_iam_role.infrastructure.arn, aws_iam_role.task.arn]
   }
 }
 

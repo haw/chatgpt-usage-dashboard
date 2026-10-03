@@ -39,21 +39,27 @@ variable "auth_allowed_domains" {
 }
 
 variable "image_tag" {
-  description = "ECR image tag App Runner runs. CI pushes 'latest' and App Runner auto-deploys on each push."
+  description = "ECR image tag the service starts with; the deploy workflow then moves it to each commit's tag."
   type        = string
   default     = "latest"
 }
 
-variable "apprunner_cpu" {
-  description = "App Runner instance CPU (the smallest size is plenty for a few analysts)."
+variable "ecs_cpu" {
+  description = "Fargate task CPU units (256 = 0.25 vCPU, plenty for a few analysts)."
   type        = string
   default     = "256"
 }
 
-variable "apprunner_memory" {
-  description = "App Runner instance memory in MB."
+variable "ecs_memory" {
+  description = "Fargate task memory in MiB."
   type        = string
   default     = "512"
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch Logs retention for the API."
+  type        = number
+  default     = 90
 }
 
 variable "domain_name" {

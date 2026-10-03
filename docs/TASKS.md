@@ -20,7 +20,7 @@
 - [x] `frontend/`（Vite + React + TypeScript + MUI + ECharts）に全画面を移植する
 - [x] Docker Compose に `frontend` サービスを追加する
 - [x] バックエンドから画面配信・ログインページ・旧 Admin API 収集機能（collector）を削除し API 専任にする
-- [x] Terraform に S3 + CloudFront（画面）と App Runner（API）、SSM のシークレット、独自ドメイン（任意）を追加し、`deploy.yml` で CI からデプロイする
+- [x] Terraform に S3 + CloudFront（画面）と ECS Express Mode（API）、SSM のシークレット、独自ドメイン `chatgpt-dashboard.dev.haw.biz` を追加し、`deploy.yml` で CI からデプロイする
 - [ ] HAW の AWS で初回セットアップ（state バケット、OIDC、ECR への初回 push、シークレット、GitHub 変数）を行い本番を公開する
 
 ## 異常検知の再設計
@@ -81,7 +81,7 @@
 
 - [x] S3ストレージアダプターを追加する
 - [x] Terraform の土台（S3 backend、データバケット、GitHub OIDC デプロイロール）と判断事項の文書（infra/terraform/README.md）を用意する
-- [x] 実行基盤を App Runner（API）+ S3/CloudFront（画面）に決めて構成する
+- [x] 実行基盤を ECS Express Mode（API）+ S3/CloudFront（画面）に決めて構成する（App Runner は新規利用不可）
 - [x] 認証はアプリ内 Google OAuth、入口は CloudFront（独自ドメインは任意）
 - [x] GitHub Actions でイメージを ECR に push し、画面を S3 へ配信する
 - [ ] 保持期間、ログ保持、監視、アラートを設定する

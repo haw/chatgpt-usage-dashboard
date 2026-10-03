@@ -28,14 +28,19 @@ output "ecr_repository" {
   value       = aws_ecr_repository.api.repository_url
 }
 
-output "apprunner_service_url" {
-  description = "The API's own URL (CloudFront origin; not used by people)."
-  value       = aws_apprunner_service.api.service_url
+output "api_endpoint" {
+  description = "The API's own HTTPS endpoint on the ECS Express ALB (CloudFront origin; not used by people)."
+  value       = local.api_endpoint
 }
 
-output "apprunner_service_arn" {
-  description = "App Runner service (CI variable APPRUNNER_SERVICE_ARN)."
-  value       = aws_apprunner_service.api.arn
+output "ecs_service_arn" {
+  description = "ECS Express service (CI variable ECS_SERVICE_ARN)."
+  value       = aws_ecs_express_gateway_service.api.service_arn
+}
+
+output "ecs_cluster" {
+  description = "ECS cluster name (CI variable ECS_CLUSTER)."
+  value       = aws_ecs_cluster.api.name
 }
 
 output "deploy_role_arn" {

@@ -5,6 +5,7 @@ github_repository    = "haw/chatgpt-usage-dashboard"
 auth_allowed_domains = ["haw.co.jp"]
 data_retention_days  = 0
 
-# Custom domain (optional). Leave both empty to use the *.cloudfront.net domain.
-domain_name     = ""
-route53_zone_id = ""
+# Custom domain under the haw.biz Route53 zone. Leave both empty to use the *.cloudfront.net domain.
+domain_name     = "chatgpt-dashboard.dev.haw.biz"
+route53_zone_id = "" # aws route53 list-hosted-zones-by-name --dns-name haw.biz --query 'HostedZones[0].Id'
+
