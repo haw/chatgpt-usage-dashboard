@@ -28,14 +28,14 @@ output "ecr_repository" {
   value       = aws_ecr_repository.api.repository_url
 }
 
-output "api_endpoint" {
-  description = "The API's own HTTPS endpoint on the ECS Express ALB (CloudFront origin; not used by people)."
-  value       = local.api_endpoint
+output "api_origin" {
+  description = "Host name CloudFront uses for the API on the shared ALB (not used by people; direct requests are rejected)."
+  value       = "https://${var.api_hostname}"
 }
 
-output "ecs_service_arn" {
-  description = "ECS Express service (CI variable ECS_SERVICE_ARN)."
-  value       = aws_ecs_express_gateway_service.api.service_arn
+output "ecs_service" {
+  description = "ECS service name (CI variable ECS_SERVICE)."
+  value       = aws_ecs_service.api.name
 }
 
 output "ecs_cluster" {

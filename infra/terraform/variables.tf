@@ -39,9 +39,25 @@ variable "auth_allowed_domains" {
 }
 
 variable "image_tag" {
-  description = "ECR image tag the service starts with; the deploy workflow then moves it to each commit's tag."
+  description = "ECR image tag the task runs. The deploy workflow pushes this tag and forces a new deployment."
   type        = string
   default     = "latest"
+}
+
+variable "shared_alb_arn" {
+  description = "Existing internet-facing Application Load Balancer the API rides on (its HTTPS listener gets a host-name rule)."
+  type        = string
+}
+
+variable "task_subnet_ids" {
+  description = "Subnets for the Fargate task, in the ALB's VPC. Public subnets avoid NAT costs (the task gets a public IP but only the ALB may reach it)."
+  type        = list(string)
+}
+
+variable "api_hostname" {
+  description = "Host name CloudFront uses to reach the API through the shared ALB; a record in route53_zone_id and an ACM certificate are created for it."
+  type        = string
+  default     = "api.chatgpt-dashboard.dev.haw.biz"
 }
 
 variable "ecs_cpu" {

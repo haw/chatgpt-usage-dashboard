@@ -1,6 +1,6 @@
 # Production infrastructure for the dashboard.
 #
-#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── ECS Express Mode (API image from ECR)
+#   viewer ── HTTPS ── CloudFront ──┬── /api/*, /login/google, /auth/*, /logout, /health ── shared ALB ── Fargate task (API image)
 #                                   └── everything else ──────────────────────────────── S3 (built React app, private)
 #
 # This file holds what every piece shares: naming, the data bucket the API writes to
@@ -130,14 +130,8 @@ data "aws_iam_policy_document" "deploy" {
   statement {
     sid       = "EcsRollout"
     effect    = "Allow"
-    actions   = ["ecs:UpdateExpressGatewayService", "ecs:DescribeExpressGatewayService", "ecs:DescribeServices"]
-    resources = ["*"] # Express service ARNs are not predictable before creation; the role is only assumable from this repo
-  }
-  statement {
-    sid       = "EcsPassRoles"
-    effect    = "Allow"
-    actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.execution.arn, aws_iam_role.infrastructure.arn, aws_iam_role.task.arn]
+    actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
+    resources = [aws_ecs_service.api.id]
   }
 }
 

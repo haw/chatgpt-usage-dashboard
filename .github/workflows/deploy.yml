@@ -1,7 +1,7 @@
 name: Deploy
 
-# Ships main to production: API image to ECR, the ECS Express service moved to that
-# image, React build to S3, CloudFront invalidation. Runs only once the Terraform outputs
+# Ships main to production: API image to ECR (:latest), a forced ECS deployment,
+# React build to S3, CloudFront invalidation. Runs only once the Terraform outputs
 # have been stored as repository variables; before that every job is skipped.
 
 on:
@@ -37,13 +37,11 @@ jobs:
           docker build -t "${{ vars.ECR_REPOSITORY }}:${{ github.sha }}" -t "${{ vars.ECR_REPOSITORY }}:latest" .
           docker push "${{ vars.ECR_REPOSITORY }}:${{ github.sha }}"
           docker push "${{ vars.ECR_REPOSITORY }}:latest"
-      - name: Roll the ECS Express service to the new image
-        if: vars.ECS_SERVICE_ARN != ''
+      - name: Roll the ECS service onto the new image
+        if: vars.ECS_SERVICE != ''
         run: |
-          aws ecs update-express-gateway-service \
-            --service-arn "${{ vars.ECS_SERVICE_ARN }}" \
-            --primary-container "image=${{ vars.ECR_REPOSITORY }}:${{ github.sha }}" > /dev/null
-          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE_ARN }}"
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_SERVICE }}" --force-new-deployment > /dev/null
+          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}"
 
   frontend:
     if: vars.AWS_ROLE_ARN != '' && vars.FRONTEND_BUCKET != ''

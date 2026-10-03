@@ -5,7 +5,12 @@ github_repository    = "haw/chatgpt-usage-dashboard"
 auth_allowed_domains = ["haw.co.jp"]
 data_retention_days  = 0
 
-# Custom domain under the haw.biz Route53 zone. Leave both empty to use the *.cloudfront.net domain.
+# Domain under the dev.haw.biz Route53 zone (also hosts the API origin name below).
 domain_name     = "chatgpt-dashboard.dev.haw.biz"
-route53_zone_id = "" # aws route53 list-hosted-zones-by-name --dns-name haw.biz --query 'HostedZones[0].Id'
+route53_zone_id = "" # aws route53 list-hosted-zones-by-name --dns-name dev.haw.biz --query 'HostedZones[0].Id'
+api_hostname    = "api.chatgpt-dashboard.dev.haw.biz"
+
+# Existing ALB the API shares, and subnets in its VPC for the Fargate task.
+shared_alb_arn  = "arn:aws:elasticloadbalancing:ap-northeast-1:<account>:loadbalancer/app/<name>/<id>"
+task_subnet_ids = ["subnet-xxxxxxxx", "subnet-yyyyyyyy"]
 

@@ -109,12 +109,17 @@ resource "aws_cloudfront_distribution" "dashboard" {
 
   origin {
     origin_id   = "api"
-    domain_name = local.api_host
+    domain_name = var.api_hostname
     custom_origin_config {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+    }
+    # Only requests that came through CloudFront carry this header; the ALB rule requires it.
+    custom_header {
+      name  = "x-origin-verify"
+      value = random_password.origin_verify.result
     }
   }
 
