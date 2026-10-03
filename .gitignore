@@ -11,6 +11,7 @@ node_modules/
 *.egg-info/
 docs/analytics-overview-*.json
 infra/terraform/.terraform/
+infra/terraform/bootstrap/.terraform/
 infra/terraform/envs/*.tfvars
 infra/terraform/envs/*.backend.hcl
 *.tfstate

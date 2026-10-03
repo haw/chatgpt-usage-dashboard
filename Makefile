@@ -1,4 +1,4 @@
-.PHONY: build up down test logs clear-data tf aws
+.PHONY: build up down test logs clear-data tf aws tf-bootstrap
 
 build:
 	docker compose build
@@ -23,6 +23,16 @@ tf:
 
 aws:
 	docker compose run --rm terraform aws $(ARGS)
+
+# One-time: create this project's Terraform state bucket and write envs/$(ENV).backend.hcl.
+# Safe to re-run (no changes once the bucket exists).
+ENV ?= prod
+tf-bootstrap:
+	docker compose run --rm terraform sh -ec '\
+		terraform -chdir=bootstrap init -input=false && \
+		terraform -chdir=bootstrap apply -var environment=$(ENV) && \
+		terraform -chdir=bootstrap output -raw backend_config > envs/$(ENV).backend.hcl && \
+		echo "Wrote infra/terraform/envs/$(ENV).backend.hcl"'
 
 # Deletes only the local ./data contents using the current host user's permissions.
 clear-data:
