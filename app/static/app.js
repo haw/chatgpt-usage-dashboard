@@ -812,6 +812,15 @@ let aiPrompts = (() => {
   return {system:AI_DEFAULT_SYSTEM, user:AI_DEFAULT_USER};
 })();
 let AI_SYSTEM = aiPrompts.system;
+function currentAiPrompts() {  // re-read so a prompt saved in another tab or just now is used
+  try {
+    const saved = JSON.parse(localStorage.getItem(AI_PROMPT_KEY));
+    if (saved && typeof saved.system === 'string' && typeof saved.user === 'string') aiPrompts = saved;
+  } catch (_) {}
+  AI_SYSTEM = aiPrompts.system;
+  return aiPrompts;
+}
+
 function fillAiPrompts() {
   document.querySelector('#ai-system-prompt').value = aiPrompts.system;
   document.querySelector('#ai-user-prompt').value = aiPrompts.user;
@@ -824,8 +833,9 @@ document.querySelector('#ai-prompt-form').addEventListener('submit', event => {
   if (!system || !user.includes('{facts}')) { setAiPromptMessage('システムプロンプトは必須、指示文には {facts} を含めてください。', 'error'); return; }
   aiPrompts = {system, user};
   AI_SYSTEM = system;
-  aiEngine = null; aiLoading = null;  // the built-in session carries the system prompt, so start a new one
-  try { localStorage.setItem(AI_PROMPT_KEY, JSON.stringify(aiPrompts)); setAiPromptMessage('このブラウザに保存しました。次の読み取りから使います。', 'success'); }
+  if (aiEngine && aiEngine.kind === 'webllm') aiEngine.system = system;  // the prompt is passed per request; no reload needed
+  else { aiEngine = null; aiLoading = null; }  // a built-in session carries its system prompt
+  try { localStorage.setItem(AI_PROMPT_KEY, JSON.stringify(aiPrompts)); setAiPromptMessage('このブラウザに保存しました。次の問い合わせから使います。', 'success'); }
   catch (_) { setAiPromptMessage('ブラウザへ保存できませんでした。', 'error'); }
 });
 document.querySelectorAll('.ai-preset').forEach(button => button.addEventListener('click', () => {
@@ -837,7 +847,7 @@ document.querySelectorAll('.ai-preset').forEach(button => button.addEventListene
 document.querySelector('#ai-prompt-reset').addEventListener('click', () => {
   aiPrompts = {system:AI_DEFAULT_SYSTEM, user:AI_DEFAULT_USER};
   AI_SYSTEM = AI_DEFAULT_SYSTEM;
-  aiEngine = null; aiLoading = null;
+  if (aiEngine && aiEngine.kind === 'webllm') aiEngine.system = AI_SYSTEM; else { aiEngine = null; aiLoading = null; }
   fillAiPrompts();
   try { localStorage.setItem(AI_PROMPT_KEY, JSON.stringify(aiPrompts)); } catch (_) {}
   setAiPromptMessage('初期値に戻しました。', 'success');
@@ -918,11 +928,11 @@ function renderReading(entry) {
   const button = document.querySelector('#ai-generate');
   button.dataset.date = entry.date;
   const status = document.querySelector('#ai-status');
+  button.textContent = 'AIに問い合わせる';
+  status.textContent = '';
   chooseAiBackend().then(backend => {
     button.disabled = !backend || !facts.observations.length;
-    if (!backend) status.textContent = aiPreference === 'builtin' ? 'Chrome内蔵AIが使えません（設定で切り替えられます）' : 'このブラウザではAIを使えません（Chrome・WebGPUが必要）';
-    else if (aiEngine) status.textContent = `${AI_MODEL_NAMES[aiEngine.kind]} 読み込み済み`;
-    else status.textContent = `${AI_MODEL_NAMES[backend]} を使います${backend === 'webllm' ? '（初回は約1GBを取得）' : ''}`;
+    if (!backend) status.textContent = 'AIを使えません（取込と設定のモデル設定を確認してください）';
   });
 }
 
@@ -938,13 +948,13 @@ async function loadAi(status) {
           expectedInputs: [{type:'text', languages:['ja']}], expectedOutputs: [{type:'text', languages:['ja']}],
           monitor(m) { m.addEventListener('downloadprogress', e => { status.textContent = `内蔵AIのモデルを取得中 ${Math.round(e.loaded * 100)}%`; }); },
         });
-        aiEngine = {kind:'builtin', ask: async text => (await session.clone()).prompt(text)};
+        aiEngine = {kind:'builtin', system:AI_SYSTEM, ask: async text => (await session.clone()).prompt(text)};
         return aiEngine;
       }
       const webllm = await import(AI_LIBRARY);
       const engine = await webllm.CreateMLCEngine(AI_MODEL, {initProgressCallback: p => { status.textContent = p.text; }});
-      aiEngine = {kind:'webllm', ask: async text => (await engine.chat.completions.create({
-        messages:[{role:'system', content:AI_SYSTEM}, {role:'user', content:text}], temperature:0.2, max_tokens:220,
+      aiEngine = {kind:'webllm', system:AI_SYSTEM, ask: async text => (await engine.chat.completions.create({
+        messages:[{role:'system', content:AI_SYSTEM}, {role:'user', content:text}], temperature:0.2, max_tokens:260,
       })).choices[0].message.content};
       return aiEngine;
     })().catch(error => { aiLoading = null; throw error; });
@@ -958,13 +968,16 @@ document.querySelector('#ai-generate').addEventListener('click', async () => {
   const button = document.querySelector('#ai-generate'), status = document.querySelector('#ai-status'), output = document.querySelector('#ai-output');
   button.disabled = true;
   try {
+    const prompts = currentAiPrompts();
+    if (aiEngine && aiEngine.system !== prompts.system) { aiEngine = null; aiLoading = null; }  // built-in sessions carry the system prompt
     const engine = await loadAi(status);
     status.textContent = '生成中…';
     const facts = readingFacts(entry);
-    const user = aiPrompts.user.replace('{facts}', JSON.stringify(facts));
+    const user = prompts.user.replace('{facts}', JSON.stringify(facts));
     output.textContent = (await engine.ask(user)).trim();
     output.hidden = false;
-    status.textContent = `${AI_MODEL_NAMES[engine.kind]}の読み取り`;
+    button.textContent = 'もう一度問い合わせる';
+    status.textContent = '';
   } catch (error) {
     status.textContent = `AIを使えませんでした: ${error.message}`;
   } finally {
