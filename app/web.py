@@ -15,9 +15,13 @@ from app.json_importer import JSONImportError, parse_token_json, parse_workspace
 from app.storage import create_storage
 from app.triage import DISPOSITION_KINDS, build_triage, checked_dates
 
+from app import auth
+
 STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="ChatGPT Usage Dashboard", docs_url="/api/docs", redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# AUTH_MODE=google installs Google OIDC login and protects every route; AUTH_MODE=none (default) leaves it open.
+oauth = auth.install(app, Settings.from_env())
 
 
 @app.get("/", include_in_schema=False)

@@ -138,7 +138,7 @@ data/
 - `.env`、`data/`、実データJSONをGit管理しない。
 - アップロード名を保存パスに使用せず、固定ファイル名で保存する。
 - Dockerイメージに `.env` と利用データを含めない。
-- MVPのWeb画面には認証を含めず、ローカルホスト向けとする。本番ではCognito等を必須とする。
+- `AUTH_MODE=none`（既定）はローカル向けで認証なし。`AUTH_MODE=google` では Google Workspace の OpenID Connect（Authorization Code、Authlib）でログインを必須にし、`AUTH_ALLOWED_DOMAINS` のドメイン以外は 403 で拒否する。セッションは署名付き Cookie（12時間）。
 - 個人識別子を含むため、本番では保存時暗号化、認証、最小権限、保持期間を必須とする。
 
 ## 8. 非機能要件

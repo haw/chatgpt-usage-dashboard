@@ -88,6 +88,24 @@ docker compose up -d --build dashboard
 
 AIの文は判断の材料であり、数値で確認してください。
 
+## ログイン（Google Workspace）
+
+既定（`AUTH_MODE=none`）はログインなしで、ローカル専用です。本番では `AUTH_MODE=google` にすると、社内の他システム（TARO、日報）と同じ Google Workspace アカウントでの OpenID Connect ログインが必須になります。
+
+```env
+AUTH_MODE=google
+GOOGLE_CLIENT_ID=...          # Google Cloud の OAuth クライアント（ウェブ アプリケーション）
+GOOGLE_CLIENT_SECRET=...
+SESSION_SECRET=...            # セッション Cookie の署名鍵（長いランダム文字列）
+AUTH_ALLOWED_DOMAINS=haw.co.jp  # カンマ区切り。これ以外のドメインのアカウントは 403
+BASE_URL=https://dashboard.example.com  # プロキシ配下で外部 URL が内部と異なるとき
+```
+
+- Google Cloud 側で「承認済みのリダイレクト URI」に `<BASE_URL>/auth/callback` を登録します。組織内のみのクライアントにしておくと、他組織のアカウントは Google 側で弾かれます。
+- `/health`・`/login`・`/login/google`・`/auth/callback`・`/logout`・`/api/me` 以外はすべてログイン必須です。未ログインの画面アクセスはログイン画面（`/login`）へ、API は 401 を返します。
+- ログイン画面の「Google でログイン」で `/login/google` → Google のアカウント選択（毎回表示）→ `/auth/callback` → 元の画面に戻ります。許可外ドメインや OAuth のエラーはログイン画面にメッセージとして表示します。
+- ログイン後、画面右上にメールアドレスと「ログアウト」が表示されます。ログアウトはこのアプリのセッションだけを終了し（Google は `end_session_endpoint` を持たないため）、ログイン画面に戻ります。セッションは12時間で切れます。
+
 ## JSON要件
 
 管理画面のAnalytics JSONを受け付けます。アクティブユーザーJSONは `chart_key` が `active-users`、トークンJSONは `tokens` である必要があります。どちらも `series` にChat・Codex・Workが各1系列あり、`rows` に日別データを含む形式です。取込例:
