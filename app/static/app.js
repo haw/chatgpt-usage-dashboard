@@ -885,6 +885,17 @@ function readingFacts(entry) {
   };
 }
 
+// What each detector measures, in plain words (goes into the JSON the AI receives).
+function plainMetric(o) {
+  const p = o.product ? o.product.toUpperCase() : '全製品';
+  switch (o.detector) {
+    case 'tokens_per_user': return `${p}の1人あたり利用量`;
+    case 'dau_change': case 'dau_increase': return `${p}の利用者数`;
+    case 'holiday_usage': return '休日の利用量';
+    default: return `${p}の利用量`;
+  }
+}
+
 function renderReading(entry) {
   const facts = readingFacts(entry);
   const output = document.querySelector('#ai-output');
