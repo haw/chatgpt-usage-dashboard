@@ -4,10 +4,12 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { getJson } from '../api/client'
-import type { DetectorInfo } from '../api/types'
+import type { DetectorInfo, VersionInfo } from '../api/types'
+import LicensesDialog from '../components/LicensesDialog'
 import { dateLabel, fmt } from '../lib/format'
 import { AI_DEFAULT_SYSTEM, AI_DEFAULT_USER, AI_PRESETS, DEFAULT_LIMITS, useViewer, type AiModel } from '../state/viewer'
 import { colors } from '../theme'
+import { CLIENT_VERSION } from '../version'
 
 const MODEL_NOTE: Record<AiModel, string> = {
   webllm: 'Qwen2.5-1.5B-Instruct を WebGPU で実行します。初回に約1GBを取得しブラウザにキャッシュします。',
@@ -25,6 +27,8 @@ export default function SettingsPage() {
   const [fiveHour, setFiveHour] = useState(String(viewer.limits.fiveHour))
   const [weekly, setWeekly] = useState(String(viewer.limits.weekly))
   const [limitMessage, setLimitMessage] = useState<{ text: string; severity: 'success' | 'error' } | null>(null)
+  const serverVersion = useQuery({ queryKey: ['version'], queryFn: () => getJson<VersionInfo>('/api/version'), staleTime: Infinity })
+  const [licensesOpen, setLicensesOpen] = useState(false)
   useEffect(() => {
     if (location.hash === '#limits') document.getElementById('limits')?.scrollIntoView({ behavior: 'smooth' })
   }, [location.hash])
@@ -139,6 +143,27 @@ export default function SettingsPage() {
             <Button type="submit" variant="contained">設定を保存</Button>
           </Stack>
         </Stack>
+      </Paper>
+      <Paper sx={{ p: 2.5 }}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <Typography variant="overline">ABOUT</Typography>
+            <Typography variant="h2">バージョン情報</Typography>
+          </div>
+          <Button size="small" variant="outlined" onClick={() => setLicensesOpen(true)}>ライセンス情報</Button>
+        </Stack>
+        <Stack direction="row" spacing={5} sx={{ mt: 1.5 }}>
+          {[
+            { label: 'クライアント', value: CLIENT_VERSION },
+            { label: 'サーバー', value: serverVersion.data?.version ?? (serverVersion.isError ? '取得できません' : '…') },
+          ].map((item) => (
+            <div key={item.label}>
+              <Typography variant="caption" color="text.secondary" component="div">{item.label}</Typography>
+              <Typography component="div" aria-label={`${item.label}のバージョン`} sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontWeight: 700 }}>{item.value}</Typography>
+            </div>
+          ))}
+        </Stack>
+        <LicensesDialog open={licensesOpen} onClose={() => setLicensesOpen(false)} />
       </Paper>
     </Stack>
   )

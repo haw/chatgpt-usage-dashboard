@@ -20,7 +20,8 @@ def test_missing_metrics_are_not_zero_or_baseline_samples():
 def test_missing_days_do_not_extend_rolling_baseline_beyond_window():
     # 2026-09-30 is a Wednesday; only 4 workdays (9/2-9/4, 9/7) fall inside its 28-day window
     rows = [usage(day) for day in range(1, 8)] + [usage(30, chat_tokens=1000)]
-    result = build_workspace_dashboard(rows, {})
+    # today is pinned: with the real date the stale-data notice appears once 9/30 is more than 3 days old
+    result = build_workspace_dashboard(rows, {}, today="2026-09-30")
     assert result["analysis"][-1]["baseline"] is None
     assert result["pending_days"] >= 1
     assert not [alert for alert in result["alerts"] if alert["date"] == "2026-09-30"]

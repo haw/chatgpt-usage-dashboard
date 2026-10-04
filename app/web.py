@@ -13,7 +13,9 @@ from app.detectors.calendar import parse_override_list
 from app.csv_importer import CSVImportError, parse_and_join, parse_token_csv
 from app.json_importer import JSONImportError, parse_token_json, parse_workspace_json
 from app.storage import create_storage
+from app.licenses import third_party_licenses
 from app.triage import DISPOSITION_KINDS, build_triage, checked_dates
+from app.version import semver, version_info
 
 from app import auth
 
@@ -37,7 +39,7 @@ TAGS = [
 ]
 app = FastAPI(
     title="ChatGPT Usage Dashboard API",
-    version="0.1.0",
+    version=semver(),
     description=API_DESCRIPTION,
     openapi_tags=TAGS,
     docs_url="/api/docs",
@@ -53,6 +55,18 @@ auth.install_origin_check(app, _settings.origin_verify_secret)  # added last, so
 @app.get("/health", tags=["ops"], summary="ヘルスチェック")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/version", tags=["ops"], summary="サーバーのバージョン")
+def version() -> dict:
+    """Semantic version of the API plus the first 8 characters of the deployed revision (`1.0.0+6095c825`)."""
+    return version_info()
+
+
+@app.get("/api/licenses", tags=["ops"], summary="サーバーが利用しているライブラリのライセンス")
+def licenses() -> dict:
+    """Name, version, license and license text of every Python package installed with the API."""
+    return {"packages": third_party_licenses()}
 
 
 SENSITIVITY_RANGE = (0.25, 4.0)

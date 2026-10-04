@@ -17,9 +17,9 @@ phases:
   build:
     commands:
       # API image
-      - docker build --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" -t "$ECR_REPOSITORY:$CODEBUILD_RESOLVED_SOURCE_VERSION" -t "$ECR_REPOSITORY:latest" .
+      - docker build --build-arg "PYTHON_IMAGE=$PYTHON_IMAGE" --build-arg "APP_REVISION=$CODEBUILD_RESOLVED_SOURCE_VERSION" -t "$ECR_REPOSITORY:$CODEBUILD_RESOLVED_SOURCE_VERSION" -t "$ECR_REPOSITORY:latest" .
       # React build (in a container, same Node version as development)
-      - docker run --rm -v "$PWD/frontend:/app" -w /app "$NODE_IMAGE" sh -c "npm ci && npm run build"
+      - docker run --rm -v "$PWD/frontend:/app" -w /app -e "APP_REVISION=$CODEBUILD_RESOLVED_SOURCE_VERSION" "$NODE_IMAGE" sh -c "npm ci && npm run build"
   post_build:
     commands:
       # Publish only when everything above succeeded.

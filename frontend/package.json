@@ -1,13 +1,17 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "licenses": "node scripts/generate-licenses.mjs",
+    "predev": "npm run licenses",
     "dev": "vite",
+    "prebuild": "npm run licenses",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "pretest": "npm run licenses",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },

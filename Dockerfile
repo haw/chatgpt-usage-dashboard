@@ -18,5 +18,10 @@ RUN groupadd --gid 1000 app \
 
 USER app
 
+# The commit this image was built from (shown after the version, e.g. 1.0.0+6095c825). Set last so
+# that a new revision does not invalidate the layers above.
+ARG APP_REVISION=""
+ENV APP_REVISION=${APP_REVISION}
+
 EXPOSE 8000
 CMD ["python", "-m", "app", "serve", "--host", "0.0.0.0", "--port", "8000"]
