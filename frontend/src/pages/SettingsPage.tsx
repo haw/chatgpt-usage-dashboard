@@ -163,7 +163,6 @@ export default function SettingsPage() {
             </div>
           ))}
         </Stack>
-        <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1, mb: 0 }}>+ の後ろは、配信されたリビジョン（コミット）の先頭8桁です。</Typography>
         <LicensesDialog open={licensesOpen} onClose={() => setLicensesOpen(false)} />
       </Paper>
     </Stack>
