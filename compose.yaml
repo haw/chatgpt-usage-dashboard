@@ -7,10 +7,12 @@ services:
         required: false
     environment:
       DATA_DIR: /app/data
+      APP_GIT_DIR: /repo/.git   # local builds show the checked-out commit after the version (1.0.0+<8 chars>)
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      - ./.git:/repo/.git:ro
       - ./config:/app/config:ro
       - ./plugins:/app/plugins:ro
     init: true
@@ -29,6 +31,7 @@ services:
     working_dir: /app
     environment:
       VITE_API_PROXY: http://dashboard:8000
+      APP_GIT_DIR: /repo/.git
       npm_config_cache: /tmp/npm-cache
     command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
     ports:
@@ -36,6 +39,7 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
+      - ./.git:/repo/.git:ro
     depends_on:
       dashboard:
         condition: service_healthy
