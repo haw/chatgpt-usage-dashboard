@@ -33,9 +33,12 @@ def test_tokens_per_user_flags_few_users_with_many_tokens():
     rows.append(usage(28, chat_tokens=50_000_000, chat_dau=1))
     signals = TokensPerUser().detect(context(rows))
     assert [(s["date"], s["product"], s["severity"]) for s in (x.to_dict() for x in signals)] == [
-        ("2026-09-28", "chat", "high")]
-    assert signals[0].value == 50_000_000 and signals[0].baseline == 10_200_000
+        ("2026-09-28", "chat", "medium")]
+    assert signals[0].value == 50_000_000 and abs(signals[0].baseline - 10_200_000) < 100_000
     assert "1人で" in signals[0].reason
+    # ten times the usual per-person amount is "high"
+    rows[-1] = usage(28, chat_tokens=120_000_000, chat_dau=1)
+    assert [s.severity for s in TokensPerUser().detect(context(rows))] == ["high"]
     # the same total with the usual head-count is normal
     rows[-1] = usage(28, chat_tokens=50_000_000, chat_dau=5)
     assert TokensPerUser().detect(context(rows)) == []
@@ -50,15 +53,19 @@ def test_dau_increase_reports_one_extra_user_as_info():
     assert DauIncrease().detect(context(rows)) == []
 
 
-def test_holiday_usage_compares_holidays_with_workday_median():
+def test_holiday_usage_compares_holidays_with_the_preceding_workdays():
     rows = [usage(day, chat_tokens=100_000_000) for day in range(14, 19)]  # Mon-Fri
-    rows.append(usage(19, chat_tokens=60_000_000, chat_dau=1))  # Saturday at 60% of a workday
-    rows.append(usage(20, chat_tokens=15_000_000, chat_dau=1))  # Sunday, quiet (15% of a workday)
+    rows.append(usage(19, chat_tokens=160_000_000, chat_dau=1))  # Saturday at 160% of a workday
+    rows.append(usage(20, chat_tokens=60_000_000, chat_dau=1))  # Sunday at 60%: ordinary weekend work
     signals = [s.to_dict() for s in HolidayUsage().detect(context(rows))]
     assert [s["date"] for s in signals] == ["2026-09-19"]
-    assert signals[0]["baseline"] == 100_000_030 and "60%" in signals[0]["reason"]
+    assert signals[0]["baseline"] == 100_000_030 and "160%" in signals[0]["reason"]
     assert HolidayUsage().detect(context(rows, sensitivity=0.5)) == []
     assert len(HolidayUsage().detect(context(rows, sensitivity=4))) == 2
+    # the reference is the workdays before the holiday, not the whole data set
+    later = rows + [usage(day, chat_tokens=400_000_000) for day in range(21, 26)]
+    assert [s.date for s in HolidayUsage().detect(context(later))] == ["2026-09-19"]
+    assert HolidayUsage().detect(context(rows[5:])) == []  # no workdays before the weekend: nothing to compare with
 
 
 def test_stale_data_warns_only_when_the_latest_day_is_old():
@@ -82,8 +89,9 @@ def load_fixture_rows() -> list[dict]:
 
 
 def test_real_september_data_with_shipped_config():
-    """Regression on the real September export: the few-users/huge-tokens day must surface,
-    the public holidays must not be reported as DAU drops, and sensitivity must be monotonic."""
+    """Regression on the September fixture (synthetic, shaped like a real month without abuse):
+    the few-users/huge-tokens day must surface and be the only day above the line, the public
+    holidays must not be reported as DAU drops, and sensitivity must be monotonic."""
     rows = load_fixture_rows()
     detectors = build_detector_set(CONFIG)
     assert detectors.errors == []
@@ -97,11 +105,14 @@ def test_real_september_data_with_shipped_config():
 
     signals = run(1.0)
     codex_per_user = [s for s in signals if s["detector"] == "tokens_per_user" and s["date"] == "2026-10-01" and s["product"] == "codex"]
-    assert codex_per_user and codex_per_user[0]["severity"] == "high"
+    assert codex_per_user and codex_per_user[0]["severity"] == "medium"
     assert not [s for s in signals if s["type"] == "dau_drop" and s["date"] == "2026-09-21"]
-    assert {s["date"] for s in signals if s["detector"] == "holiday_usage"} >= {"2026-09-21", "2026-09-22", "2026-09-23"}
     assert not [s for s in signals if s["detector"] == "stale_data"]
     strong = [s for s in signals if s["severity"] != "info"]
+    assert {s["date"] for s in strong} == {"2026-10-01"}
+    # holidays used like workdays are ordinary here; they only surface when the analyst raises the sensitivity
+    assert not [s for s in signals if s["detector"] == "holiday_usage"]
+    assert {s["date"] for s in run(2.0) if s["detector"] == "holiday_usage"} >= {"2026-09-21", "2026-09-22", "2026-09-23"}
     assert len(run(0.5)) <= len(signals) <= len(run(2.0))
     assert len([s for s in run(0.5) if s["severity"] != "info"]) <= len(strong)
 

@@ -13,12 +13,15 @@
 id = "token_spike"
 enabled = true
 [detectors.params]
-z = 3.5                  # ロバストZスコアの判定値
+z = 3.5                  # 判定値。普段のばらつき（倍率・対数）の何倍離れたら検出するか
 high_z = 7.0             # これ以上は重要度「高」
 window_days = 28         # 基準に使う直前の日数（暦日）
 min_history = 5          # 基準に必要な同じ区分の日数。足りない日は判定保留
 same_kind_only = true    # 平日は平日、休日は休日と比較する
-exclude_anomalies = true # 異常と判定した日を以後の基準から外す
+exclude_anomalies = false # true にすると検出した日を以後の基準から外す（増えた利用が定着しても検出し続ける）
+scale_share = 1.0        # 倍率を比べる前に両方へ足す量（直前期間の平日1日分の総トークン中央値 × この値）。
+                         # 小さい量どうしの倍率（0.1M→2M で「20倍」）を過大に扱わないため
+min_spread = 0.25        # ばらつきの下限（対数）。0.25 は「日々±3割ほどの変動は普通」に相当
 min_tokens_total = 0     # これ未満の値は急増と判定しない（製品別も同様）
 min_tokens_chat = 0
 min_tokens_codex = 0
@@ -32,20 +35,23 @@ z = 3.5
 window_days = 28
 min_history = 5
 min_change = 2           # 中央値との差がこれ未満なら無視（人数）。+1人の検知は dau_increase が担当
+min_spread = 1.0         # ばらつきの下限（人）
 same_kind_only = true
-exclude_anomalies = true
+exclude_anomalies = false
 
 [[detectors]]
 id = "tokens_per_user"
 enabled = true
 [detectors.params]
 z = 3.5
-high_z = 6.0
+high_z = 7.0
 window_days = 28
 min_history = 5
 min_tokens_per_user = 5000000  # 1人あたりがこれ未満なら無視
+scale_share = 1.0
+min_spread = 0.25
 same_kind_only = true
-exclude_anomalies = true
+exclude_anomalies = false
 
 [[detectors]]
 id = "dau_increase"
@@ -60,7 +66,8 @@ severity = "info"
 id = "holiday_usage"
 enabled = true
 [detectors.params]
-ratio = 0.5              # 休日の総トークンが平日中央値のこの割合以上なら検出
+ratio = 1.5              # 休日の総トークンが直前期間の平日中央値のこの倍率以上なら検出
+window_days = 28
 min_workdays = 5
 min_tokens = 1000000
 severity = "medium"
@@ -74,6 +81,9 @@ severity = "info"
 
 # 各検知器の z・最小量・比率は、画面の「感度」スライダーの値で割って使います（感度2.0なら判定ラインが半分）。
 # 上の値は感度1.0のときの基準です。
+#
+# 既定値は、不正利用のなかった期間のデータで「要確認になる日数」と「不正を1日足したときに気づける割合」を
+# 比べて決めています。設定を変えたら `python -m app evaluate`（`make evaluate`）で同じ比較ができます。
 
 # 独自検知器の例（plugins/example_rule.py を参照）
 # [[detectors]]

@@ -48,8 +48,8 @@ def build_triage(
     for day, items in by_date.items():
         entry = _entry(day, items, days.get(day, {}), ordered, history, latest_disposition.get(day))
         entries.append(entry)
-    entries.sort(key=lambda e: (-e["score"], e["date"]), reverse=False)
-    entries.sort(key=lambda e: e["score"], reverse=True)
+    # among equal scores the newer day comes first: it is the one the analyst can still act on
+    entries.sort(key=lambda e: (-e["score"], _neg_date(e["date"])))
     for index, entry in enumerate(entries):
         if entry["disposition"] and entry["disposition"]["kind"] == "checked":
             entry["tier"] = TIER_REFERENCE
@@ -60,8 +60,6 @@ def build_triage(
         else:
             entry["tier"] = TIER_WEEK
     tier_order = {TIER_TODAY: 0, TIER_WEEK: 1, TIER_REFERENCE: 2}
-    entries.sort(key=lambda e: (tier_order[e["tier"]], -e["score"], e["date"]))
-    entries.sort(key=lambda e: (tier_order[e["tier"]], -e["score"]))
     # within a tier, newer dates first for equal scores
     entries = sorted(entries, key=lambda e: (tier_order[e["tier"]], -e["score"], _neg_date(e["date"])))
 

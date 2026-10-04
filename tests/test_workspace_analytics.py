@@ -1,4 +1,5 @@
 from app.analytics import build_workspace_dashboard, detect_workspace_alerts
+from app.detectors.stats import ratio_threshold
 
 
 def test_missing_metrics_are_not_zero_or_baseline_samples():
@@ -38,18 +39,21 @@ def test_rows_carry_day_kind_and_overrides_apply():
 
 
 def test_holiday_baseline_uses_only_holidays():
-    # Weekends get 100 chat tokens, workdays 1000; a 1000-token Sunday must stand out against other weekends
+    # Weekends get 100 chat tokens, workdays 1000. A Sunday with 3000 would be an ordinary jump for a
+    # workday baseline that already holds a 3000-token day; against the other weekends it stands out.
     rows = []
     for day in range(1, 29):
         weekend = (day + 1) % 7 in (0, 6)  # 2026-09-05 (day 5) is Saturday
         rows.append(usage(day, chat_tokens=100 if weekend else 1000, chat_dau=1 if weekend else 5))
     rows[-1]["tokens"] = {"chat": 1000, "codex": 20, "work": 10, "total": 1030}  # 2026-09-28 is a Monday
-    rows.append(usage(27, chat_tokens=1000, chat_dau=5))  # a second Sunday 9/27 at workday level
+    rows.append(usage(27, chat_tokens=3000, chat_dau=1))  # Sunday 9/27 far above every other weekend
     rows = sorted({row["date"]: row for row in rows}.values(), key=lambda row: row["date"])
-    result = build_workspace_dashboard(rows, {})
+    result = build_workspace_dashboard(rows, {}, today="2026-09-28")
     spikes = {(a["date"], a["product"]) for a in result["alerts"] if a["type"] == "token_spike"}
     assert ("2026-09-27", "chat") in spikes
     assert ("2026-09-28", "chat") not in spikes
+    sunday = next(a for a in result["alerts"] if a["type"] == "token_spike" and a["date"] == "2026-09-27" and a["product"] == "chat")
+    assert sunday["baseline"] == 100  # the other weekends, not the workdays
 
 
 def usage(day: int, chat_tokens: int = 100, chat_dau: int = 5) -> dict:
@@ -91,7 +95,8 @@ def test_selected_period_uses_period_wide_baseline_without_earlier_data():
     point = result["analysis"][0]
     assert point["date"] == "2026-09-08"
     assert point["baseline"] == 1030
-    assert point["threshold"] == 2060
+    # a single day is its own baseline; the line is 3.5 minimum spreads above it on the ratio scale
+    assert point["threshold"] == round(ratio_threshold(1030, 0.25, 1030, 3.5), 1)
     assert point["is_anomaly"] is False
 
 
@@ -103,6 +108,6 @@ def test_selected_period_detects_using_only_values_inside_period():
     )
     point = result["analysis"][-1]
     assert point["baseline"] == 130
-    assert point["threshold"] == 260
+    assert point["threshold"] == round(ratio_threshold(130, 0.25, 130, 3.5), 1)
     assert point["is_anomaly"] is True
     assert any(alert["type"] == "token_spike" for alert in result["alerts"])
