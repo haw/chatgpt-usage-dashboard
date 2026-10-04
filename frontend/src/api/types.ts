@@ -190,3 +190,18 @@ export interface IndividualHistoryRow {
   bytes: number
   sha256: string
 }
+
+export interface VersionInfo {
+  /** `<semver>` or `<semver>+<first 8 characters of the deployed revision>` */
+  version: string
+  semver: string
+  revision: string | null
+}
+
+export interface LicensePackage {
+  name: string
+  version: string
+  license: string
+  homepage: string
+  text: string
+}

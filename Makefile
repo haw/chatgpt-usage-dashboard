@@ -1,4 +1,4 @@
-.PHONY: build up down test logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image deploy deploy-status
+.PHONY: build up down test test-frontend logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image deploy deploy-status
 
 build:
 	docker compose build
@@ -11,6 +11,11 @@ down:
 
 test:
 	docker compose run --rm --no-deps test
+
+# Frontend typecheck + component tests against a throwaway no-login API (compose: test-api, frontend-test).
+test-frontend:
+	docker compose --profile tools build -q test-api
+	docker compose --profile tools run --rm frontend-test; status=$$?; docker compose --profile tools rm -sf test-api >/dev/null 2>&1; exit $$status
 
 logs:
 	docker compose logs -f dashboard
@@ -80,7 +85,7 @@ tf-first-image:
 	$(TF_RUN) terraform apply -var-file=envs/$(ENV).tfvars -target=aws_ecr_repository.api -target=aws_codeconnections_connection.github
 	REPO=$$($(TF_RUN) terraform output -raw ecr_repository) && \
 	$(TF_RUN) aws ecr get-login-password | docker login --username AWS --password-stdin $${REPO%%/*} && \
-	docker build -t $$REPO:latest . && \
+	docker build --build-arg APP_REVISION=$$(git rev-parse HEAD) -t $$REPO:latest . && \
 	docker push $$REPO:latest
 
 # Deploys run in AWS CodeBuild on every push to main. These start one by hand and list recent ones.

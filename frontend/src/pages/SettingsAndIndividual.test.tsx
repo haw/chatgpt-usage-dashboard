@@ -32,6 +32,23 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '設定を保存' }))
     expect(JSON.parse(localStorage.getItem('chatgpt-dashboard.limit-settings.v1')!)).toEqual({ fiveHour: 1_000_000, weekly: 173_000_000 })
   })
+
+  it('shows the client and server versions and the licenses of both sides', async () => {
+    renderApp(<SettingsPage />)
+    const semver = /^\d+\.\d+\.\d+(\+[0-9a-f]{8})?$/
+    expect(screen.getByLabelText('クライアントのバージョン').textContent).toMatch(semver)
+    await waitFor(() => expect(screen.getByLabelText('サーバーのバージョン').textContent).toMatch(semver), { timeout: 10_000 })
+
+    await userEvent.click(screen.getByRole('button', { name: 'ライセンス情報' }))
+    const dialog = await screen.findByRole('dialog', { name: '利用ライブラリのライセンス' })
+    const react = await within(dialog).findByRole('button', { name: /^react \d/ }, { timeout: 10_000 })
+    expect(react.textContent).toContain('MIT')
+    await userEvent.click(react)
+    expect(await within(dialog).findByText(/Permission is hereby granted/)).toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole('tab', { name: /サーバー/ }))
+    expect((await within(dialog).findByRole('button', { name: /^fastapi \d/ }, { timeout: 10_000 })).textContent).toContain('MIT')
+  })
 })
 
 describe('IndividualPage against the real API', () => {

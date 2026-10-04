@@ -177,11 +177,26 @@ data/
 ## テスト
 
 ```bash
-docker compose run --rm --no-deps test        # API: pytest
-cd frontend && npm run typecheck && npm test  # 画面: 型検査と、実 API に接続するコンポーネントテスト（BACKEND=http://localhost:8001 で向き先を指定）
+make test            # API: pytest
+make test-frontend   # 画面: 型検査と、実 API に接続するコンポーネントテスト（ログインなしの API をコンテナで起動し、合成 fixture を読み込んで実行）
 ```
 
 API のテストは実データやネットワークを使わず、合成 fixture に対して JSON 検証、冪等保存、異常判定、アップロード API、ログインを検証します。画面のテストは CI では AUTH_MODE=none の API を起動して合成 fixture を投入してから実行します。
+
+## バージョンとライセンス表示
+
+「取込と設定」の「バージョン情報」に、クライアント（画面）とサーバー（API）のバージョンをそれぞれ表示します。「ライセンス情報」から、両方が利用しているライブラリの名前・バージョン・ライセンスとライセンス文を確認できます。
+
+- 形式は [セマンティックバージョニング](https://semver.org/lang/ja/) の `メジャー.マイナー.パッチ` に、配信されたリビジョン（コミット）の先頭 8 桁をビルドメタデータとして付けたものです（例: `1.0.0+6095c825`）。ローカル開発ではリビジョンが付かず `1.0.0` になります。
+- クライアントとサーバーは別々に管理します。上げるときは次の値を書き換えます。
+
+  | 対象 | 書き換える場所 | 表示のしくみ |
+  |---|---|---|
+  | クライアント | `frontend/package.json` の `version` | ビルド時に埋め込み（`frontend/vite.config.ts`） |
+  | サーバー | `pyproject.toml` の `version` | `GET /api/version`（`app/version.py`） |
+
+- リビジョンは配信時に `APP_REVISION`（コミットのハッシュ）として渡します（`buildspec.yml`）。API の画像には `--build-arg`、画面のビルドには環境変数で渡り、先頭 8 桁だけを使います。
+- ライセンス情報は手書きせず、実際に入っているパッケージから集めます。クライアントは `frontend/scripts/generate-licenses.mjs` が `package-lock.json` の本番依存を走査してビルド時に生成し、サーバーは `GET /api/licenses` がインストール済みパッケージのメタデータから返します。
 
 ## ドキュメント
 

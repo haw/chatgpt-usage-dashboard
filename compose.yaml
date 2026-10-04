@@ -73,6 +73,41 @@ services:
     entrypoint: ["sh", "-c"]
     command: ["cp -a /workspace /tmp/project && cd /tmp/project && pip install --no-cache-dir '.[dev]' >/dev/null && pytest"]
 
+  # Frontend checks in containers: `make test-frontend`. test-api is the API without login and with
+  # throwaway data; frontend-test loads the synthetic fixtures into it, then runs typecheck and vitest.
+  test-api:
+    build: .
+    profiles: ["tools"]
+    environment:
+      AUTH_MODE: none
+      STORAGE_BACKEND: local
+      DATA_DIR: /tmp/data
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  frontend-test:
+    image: node:24-alpine
+    profiles: ["tools"]
+    working_dir: /app
+    environment:
+      BACKEND: http://test-api:8000
+      FIXTURES: /tests/fixtures
+      npm_config_cache: /tmp/npm-cache
+    command: sh -c "npm ci --no-audit --no-fund && node scripts/seed-test-api.mjs && npm run typecheck && npm test"
+    volumes:
+      - ./frontend:/app
+      - frontend_test_node_modules:/app/node_modules
+      - ./tests/fixtures:/tests/fixtures:ro
+    depends_on:
+      test-api:
+        condition: service_healthy
+    init: true
+
 volumes:
   frontend_node_modules:
+  frontend_test_node_modules:
   aws_credentials:
