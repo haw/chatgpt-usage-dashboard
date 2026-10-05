@@ -27,6 +27,7 @@ class Signal:
     threshold: float | None = None
     score: float | None = None
     reason: str = ""
+    span_days: int | None = None  # for signals about a run of days (a level shift): how many days
 
     def __post_init__(self) -> None:
         if self.severity not in SEVERITIES:

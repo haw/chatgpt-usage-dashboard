@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { getJson } from '../api/client'
 import type { ContextResponse, DetectorInfo, TriageEntry } from '../api/types'
-import { dateLabel, signalSentence } from '../lib/format'
+import { dateLabel, isLevelShift, observationLabel, signalSentence } from '../lib/format'
 import { useViewer, type ContextMode } from '../state/viewer'
 import AiReading from './AiReading'
 import BoxPlotChart from './BoxPlotChart'
@@ -58,10 +58,11 @@ export default function ContextDialog({ entry, entries, open, onClose }: Props) 
             {context.data &&
               shown.map((o, index) => (
                 <Stack key={`${o.detector}-${o.product ?? 'all'}-${index}`} spacing={0.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
-                  <Typography variant="subtitle2">{`${labelOf(o.detector)}${o.product ? ` · ${o.product.toUpperCase()}` : ''}`}</Typography>
+                  <Typography variant="subtitle2">{observationLabel(o, labelOf(o.detector))}</Typography>
                   <Typography variant="body2" color="text.secondary">{signalSentence(o, entry.facts.kind)}</Typography>
-                  {viewer.contextMode !== 'series' && <BoxPlotChart signal={o} rows={context.data.rows} date={entry.date} kind={entry.facts.kind} entries={entries} />}
-                  {viewer.contextMode !== 'box' && <SeriesChart signal={o} rows={context.data.rows} date={entry.date} kind={entry.facts.kind} />}
+                  {/* a level shift is about a run of days: only the series over time shows it */}
+                  {viewer.contextMode !== 'series' && !isLevelShift(o) && <BoxPlotChart signal={o} rows={context.data.rows} date={entry.date} kind={entry.facts.kind} entries={entries} />}
+                  {(viewer.contextMode !== 'box' || isLevelShift(o)) && <SeriesChart signal={o} rows={context.data.rows} date={entry.date} kind={entry.facts.kind} />}
                 </Stack>
               ))}
           </Stack>
