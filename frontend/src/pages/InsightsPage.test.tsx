@@ -16,13 +16,15 @@ function renderInsights(route = '/insights') {
   )
 }
 
+// The fixture's last day is fixed, so the page may or may not also show its "data is stale" notice
+// (which repeats 最終データ日) depending on the day the tests run: wait for any occurrence.
 describe('InsightsPage against the real API', () => {
   beforeAll(() => useRealBackend())
   beforeEach(() => localStorage.clear())
 
   it('lists ranked days with their observations', async () => {
     renderInsights()
-    await screen.findByText(/最終データ日/, {}, { timeout: 10_000 })
+    await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })
     const priority = screen.getByText('優先して確認').closest('div')!.parentElement!.parentElement!
     const cards = within(priority).getAllByText('グラフで見る')
     expect(cards.length).toBeGreaterThan(0)
@@ -31,7 +33,7 @@ describe('InsightsPage against the real API', () => {
 
   it('marks a day as checked and back', async () => {
     renderInsights()
-    await screen.findByText(/最終データ日/, {}, { timeout: 10_000 })
+    await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })
     const [first] = screen.getAllByText('確認済みにする')
     const card = first.closest('.MuiPaper-root') as HTMLElement
     const date = within(card).getByText(/^\d+\/\d+（.）$/).textContent
@@ -44,7 +46,7 @@ describe('InsightsPage against the real API', () => {
 
   it('opens the observation panel from a deep link and shows one chart per observation', async () => {
     renderInsights()
-    await screen.findByText(/最終データ日/, {}, { timeout: 10_000 })
+    await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })
     await userEvent.click(screen.getAllByText('グラフで見る')[0])
     const dialog = await screen.findByRole('dialog', {}, { timeout: 10_000 })
     await waitFor(() => expect(within(dialog).getAllByTestId('chart').length).toBeGreaterThan(0), { timeout: 10_000 })
