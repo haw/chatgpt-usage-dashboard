@@ -1,4 +1,4 @@
-.PHONY: build up down test test-frontend logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image deploy deploy-status
+.PHONY: build up down test test-frontend evaluate logs clear-data tf aws tf-build aws-configure aws-whoami tf-shell tf-bootstrap tf-init tf-plan tf-apply tf-output tf-fmt tf-check tf-first-image deploy deploy-status
 
 build:
 	docker compose build
@@ -11,6 +11,11 @@ down:
 
 test:
 	docker compose run --rm --no-deps test
+
+# Check the detection rules against the stored workspace data, assuming it contains no abuse:
+# days flagged per sensitivity (false alarms) and how often injected misuse would be noticed.
+evaluate:
+	docker compose run --rm --no-deps -e PYTHONPATH=/workspace -v "$(CURDIR):/workspace:ro" -w /workspace dashboard python -m app evaluate
 
 # Frontend typecheck + component tests against a throwaway no-login API (compose: test-api, frontend-test).
 test-frontend:

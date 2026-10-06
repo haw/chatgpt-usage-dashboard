@@ -1,11 +1,48 @@
 """Shared statistics for detectors: robust baselines and history windows."""
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from statistics import median
 from typing import Any
 
 MAD_SCALE = 0.6745  # converts MAD to a standard-deviation equivalent for normal data
+
+
+def ratio_baseline(values: list[float], scale: float, min_spread: float) -> tuple[float, float]:
+    """Baseline for quantities that vary by ratio (token counts): (typical value, spread).
+
+    Token usage changes multiplicatively: a day is "three times the usual", not "200M more than
+    usual", and usual days themselves differ by tens of percent. So the comparison is made on
+    ln(value + scale): the centre is the median and the spread is the MAD turned into a
+    standard-deviation equivalent, never below ``min_spread`` (a few similar days must not make
+    the next ordinary day look extreme).
+
+    ``scale`` is an amount of tokens that is ordinary for this workspace (a typical workday).
+    Adding it to both sides keeps ratios between small amounts in proportion: going from 0.1M to
+    2M is "20 times" on paper but nothing next to a 100M day, while 0 to 150M still stands out.
+    """
+    logs = [math.log(value + scale) for value in values]
+    center = float(median(logs))
+    spread = max(float(median(abs(sample - center) for sample in logs)) / MAD_SCALE, min_spread)
+    return math.exp(center) - scale, spread
+
+
+def ratio_score(value: float, typical: float, spread: float, scale: float) -> float:
+    """How many spreads ``value`` lies above (or below) the typical value, on the ratio scale."""
+    return (math.log(value + scale) - math.log(typical + scale)) / spread
+
+
+def ratio_threshold(typical: float, spread: float, scale: float, factor: float) -> float:
+    """The raw value whose ratio score equals ``factor``."""
+    return math.exp(math.log(typical + scale) + factor * spread) - scale
+
+
+def count_baseline(values: list[float], min_spread: float) -> tuple[float, float]:
+    """Baseline for head counts (DAU): (median, spread in people, at least ``min_spread``)."""
+    center = float(median(values))
+    spread = max(float(median(abs(sample - center) for sample in values)) / MAD_SCALE, min_spread)
+    return center, spread
 
 
 def robust_baseline(values: list[float], factor: float = 3.5) -> tuple[float, float, float]:
