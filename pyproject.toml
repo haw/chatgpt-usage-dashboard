@@ -1,6 +1,6 @@
 [project]
 name = "chatgpt-usage-dashboard"
-version = "1.0.0"
+version = "1.1.0"
 description = "Local-first ChatGPT workspace usage dashboard"
 requires-python = ">=3.12"
 dependencies = [
