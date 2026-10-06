@@ -9,6 +9,7 @@ import DailyTable from '../components/DailyTable'
 import DetectedDays from '../components/DetectedDays'
 import KpiCards from '../components/KpiCards'
 import ProductLineChart from '../components/ProductLineChart'
+import LevelShiftSwitch from '../components/LevelShiftSwitch'
 import SensitivityControl from '../components/SensitivityControl'
 import UploadCard from '../components/UploadCard'
 import { useViewer } from '../state/viewer'
@@ -27,8 +28,8 @@ export default function TrendsPage() {
     placeholderData: keepPreviousData, // keep charts and the table on screen while a new sensitivity/period loads
   })
   const triage = useQuery({
-    queryKey: ['triage', viewer.params.holidays, viewer.params.workdays],
-    queryFn: () => getJson<TriageResponse>('/api/triage', { holidays: viewer.params.holidays, workdays: viewer.params.workdays }),
+    queryKey: ['triage', viewer.params.holidays, viewer.params.workdays, viewer.params.level_shifts],
+    queryFn: () => getJson<TriageResponse>('/api/triage', { holidays: viewer.params.holidays, workdays: viewer.params.workdays, level_shifts: viewer.params.level_shifts }),
     placeholderData: keepPreviousData,
   })
   const data = dashboard.data
@@ -68,7 +69,10 @@ export default function TrendsPage() {
             <Typography variant="h2">総トークン異常分析</Typography>
           </Grid>
           <Grid>
-            <SensitivityControl />
+            <Stack direction="row" spacing={2.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <LevelShiftSwitch />
+              <SensitivityControl />
+            </Stack>
           </Grid>
         </Grid>
         <AnomalyChart points={data?.analysis ?? []} narrowed={Boolean(period.start || period.end)} />

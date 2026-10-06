@@ -6,6 +6,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { getJson, postJson } from '../api/client'
 import type { TriageEntry, TriageResponse } from '../api/types'
 import ContextDialog from '../components/ContextDialog'
+import LevelShiftSwitch from '../components/LevelShiftSwitch'
 import TriageEntryCard from '../components/TriageEntryCard'
 import { dateLabel, fmt } from '../lib/format'
 import { useViewer } from '../state/viewer'
@@ -16,8 +17,8 @@ export default function InsightsPage() {
   const { date } = useParams()
   const queryClient = useQueryClient()
   const triage = useQuery({
-    queryKey: ['triage', viewer.params.holidays, viewer.params.workdays],
-    queryFn: () => getJson<TriageResponse>('/api/triage', { holidays: viewer.params.holidays, workdays: viewer.params.workdays }),
+    queryKey: ['triage', viewer.params.holidays, viewer.params.workdays, viewer.params.level_shifts],
+    queryFn: () => getJson<TriageResponse>('/api/triage', { holidays: viewer.params.holidays, workdays: viewer.params.workdays, level_shifts: viewer.params.level_shifts }),
     placeholderData: keepPreviousData,
   })
   const mark = useMutation({
@@ -50,14 +51,17 @@ export default function InsightsPage() {
   return (
     <Stack spacing={2}>
       <Paper sx={{ px: 2.5, py: 1.75 }}>
-        {status?.latest_date ? (
-          <Typography variant="body2">
-            最終データ日 <strong>{dateLabel(status.latest_date)}</strong>（{status.age_days}日前）· 保存 {fmt(status.stored_days)}日分 · 基準: {status.baseline}
-            {status.pending_days ? ` · 判定保留 ${status.pending_days}日` : ''}
-          </Typography>
-        ) : (
-          <Typography variant="body2" color="text.secondary">{triage.isLoading ? '読み込み中…' : 'データがありません。「推移」からJSONを取り込んでください。'}</Typography>
-        )}
+        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+          {status?.latest_date ? (
+            <Typography variant="body2">
+              最終データ日 <strong>{dateLabel(status.latest_date)}</strong>（{status.age_days}日前）· 保存 {fmt(status.stored_days)}日分 · 基準: {status.baseline}
+              {status.pending_days ? ` · 判定保留 ${status.pending_days}日` : ''}
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary">{triage.isLoading ? '読み込み中…' : 'データがありません。「推移」からJSONを取り込んでください。'}</Typography>
+          )}
+          <LevelShiftSwitch />
+        </Stack>
         {status?.stale && <Alert severity="error" sx={{ mt: 1 }}>取込が止まっています: {status.stale_reason}</Alert>}
         {triage.error && <Alert severity="error" sx={{ mt: 1 }}>読み込みに失敗しました: {(triage.error as Error).message}</Alert>}
         {mark.error && <Alert severity="error" sx={{ mt: 1 }}>記録に失敗しました: {(mark.error as Error).message}</Alert>}

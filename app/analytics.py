@@ -23,6 +23,7 @@ def build_individual_dashboard(
     detectors: DetectorSet | None = None,
     day_overrides: dict[str, str] | None = None,
     sensitivity: float = 1.0,
+    level_shifts: bool = False,
 ) -> dict[str, Any]:
     detectors = detectors or default_detectors()
     users_by_id: dict[str, dict[str, Any]] = {}
@@ -40,7 +41,7 @@ def build_individual_dashboard(
     daily = sorted((row for row in rows if row["user_id"] == selected_id), key=lambda row: row["date"])
     days = classify_days(daily, day_overrides, infer=False)
     ctx = DetectionContext(rows=daily, scope="individual", day_kinds={d: v["kind"] for d, v in days.items()},
-                           sensitivity=sensitivity)
+                           sensitivity=sensitivity, level_shifts=level_shifts)
     analysis = detectors.series(ctx)
     alerts = detectors.run(ctx)
     daily = _with_day_kinds(daily, days)
@@ -74,6 +75,7 @@ def build_workspace_dashboard(
     day_overrides: dict[str, str] | None = None,
     sensitivity: float = 1.0,
     today: str | None = None,
+    level_shifts: bool = False,
 ) -> dict[str, Any]:
     detectors = detectors or default_detectors()
     ordered = sorted(rows, key=lambda row: row["date"])
@@ -85,7 +87,8 @@ def build_workspace_dashboard(
     ]
     period_wide = start_date is not None or end_date is not None
     ctx = DetectionContext(rows=selected, scope="workspace", period_wide=period_wide,
-                           day_kinds={d: v["kind"] for d, v in days.items()}, sensitivity=sensitivity, today=today)
+                           day_kinds={d: v["kind"] for d, v in days.items()}, sensitivity=sensitivity, today=today,
+                           level_shifts=level_shifts)
     alerts = detectors.run(ctx)
     analysis = detectors.series(ctx)
     selected = _with_day_kinds(selected, days)

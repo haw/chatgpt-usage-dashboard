@@ -27,6 +27,7 @@ class Signal:
     threshold: float | None = None
     score: float | None = None
     reason: str = ""
+    span_days: int | None = None  # for signals about a run of days (a level shift): how many days
 
     def __post_init__(self) -> None:
         if self.severity not in SEVERITIES:
@@ -51,6 +52,8 @@ class DetectionContext:
     day_kinds: dict[str, str] = field(default_factory=dict)
     today: str | None = None
     sensitivity: float = 1.0  # viewer-chosen multiplier; >1 makes every detector more sensitive
+    # Viewer's choice: also judge runs of days (level shifts) on top of the day-by-day rules.
+    level_shifts: bool = False
 
     def rows_with(self, group: str) -> list[dict[str, Any]]:
         return [row for row in self.rows if row.get(group) is not None]
@@ -78,6 +81,10 @@ class Detector:
 
     def detect(self, ctx: DetectionContext) -> list[Signal]:
         raise NotImplementedError
+
+    def shift_limit(self, ctx: DetectionContext) -> float:
+        """The level-shift limit in force: the tuned parameter, or 0 (off) unless the viewer opted in."""
+        return self.tuned("shift_limit", ctx) if ctx.level_shifts and "shift_limit" in self.params else 0.0
 
     def tuned(self, name: str, ctx: DetectionContext) -> float:
         """A threshold-like parameter divided by the viewer's sensitivity.

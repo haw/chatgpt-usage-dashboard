@@ -32,6 +32,8 @@ export interface Signal {
   threshold: number | null
   score: number | null
   reason: string
+  /** For signals about a run of days (a level shift): how many same-kind days the run lasted. */
+  span_days?: number | null
 }
 
 export interface AnalysisPoint {

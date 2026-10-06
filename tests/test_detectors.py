@@ -101,7 +101,7 @@ def test_plugin_module_is_loaded_from_plugins_dir(tmp_path):
     assert signals == [{
         "detector": "always_fire", "type": "always", "severity": "high", "metric": "テスト",
         "date": "2026-09-01", "value": 0, "product": None, "baseline": None, "threshold": None,
-        "score": None, "reason": "",
+        "score": None, "reason": "", "span_days": None,
     }]
 
 

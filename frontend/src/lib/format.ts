@@ -46,6 +46,15 @@ function ratioText(value: number, baseline: number | null, kind: DayKind, score:
   return `（普段 ${compact(baseline)} の ${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}倍${sdText(score)}）`
 }
 
+/** A level shift is reported by the detector that watches the series, but it is its own kind of observation. */
+export function isLevelShift(a: Signal): boolean {
+  return a.type === 'level_shift' || a.type === 'dau_level_shift'
+}
+
+export function observationLabel(a: Signal, detectorLabel: string): string {
+  return `${isLevelShift(a) ? '変化点' : detectorLabel}${a.product ? ` · ${a.product.toUpperCase()}` : ''}`
+}
+
 /** One short sentence per signal: what, how much, compared with what. */
 export function signalSentence(a: Signal, kind: DayKind = 'workday'): string {
   switch (a.type) {
@@ -61,6 +70,12 @@ export function signalSentence(a: Signal, kind: DayKind = 'workday'): string {
     case 'dau_drop':
     case 'dau_drop_notable':
       return `${productName(a.product)}のDAU ${fmt(a.value)}人に減少（普段 ${fmt(a.baseline ?? 0)}人${sdText(a.score)}）`
+    case 'level_shift': {
+      const ratio = a.baseline ? `、約${(a.value / a.baseline >= 10 ? Math.round(a.value / a.baseline) : (a.value / a.baseline).toFixed(1))}倍` : ''
+      return `${productName(a.product)}のトークンがこの日から${a.span_days ?? ''}日続けて多め（1日あたり 普段 ${compact(a.baseline ?? 0)} → ${compact(a.value)}${ratio}）`
+    }
+    case 'dau_level_shift':
+      return `${productName(a.product)}の利用者がこの日から${a.span_days ?? ''}日続けて多め（普段 ${fmt(a.baseline ?? 0)}人 → ${fmt(a.value)}人）`
     case 'dau_new_max':
       return `${productName(a.product)}の利用者 ${fmt(a.value)}人は直前28日で最多（これまでの最多 ${fmt(a.baseline ?? 0)}人、+${fmt(a.value - (a.baseline ?? 0))}人）`
     case 'holiday_usage':
