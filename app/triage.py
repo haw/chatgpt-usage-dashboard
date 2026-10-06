@@ -27,11 +27,12 @@ def build_triage(
     day_overrides: dict[str, str] | None = None,
     today: str | None = None,
     top_k: int = TOP_K,
+    level_shifts: bool = False,
 ) -> dict[str, Any]:
     ordered = sorted(rows, key=lambda row: row["date"])
     days = classify_days(ordered, day_overrides)
     ctx = DetectionContext(rows=ordered, scope="workspace",
-                           day_kinds={d: v["kind"] for d, v in days.items()}, today=today)
+                           day_kinds={d: v["kind"] for d, v in days.items()}, today=today, level_shifts=level_shifts)
     signals = detectors.run(ctx)
     analysis = detectors.series(ctx)
     operations = [s for s in signals if s["detector"] in _operations_ids(detectors)]

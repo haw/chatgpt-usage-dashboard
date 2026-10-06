@@ -33,6 +33,7 @@ const KEYS = {
   contextMode: 'chatgpt-dashboard.context-mode.v1',
   aiModel: 'chatgpt-dashboard.ai-model.v1',
   aiPrompts: 'chatgpt-dashboard.ai-prompts.v1',
+  levelShifts: 'chatgpt-dashboard.level-shifts.v1',
 }
 
 export const AI_DEFAULT_SYSTEM =
@@ -88,6 +89,9 @@ export interface ViewerState {
   aiModel: AiModel
   aiPrompts: AiPrompts
   setSensitivity: (value: number) => void
+  /** Also judge runs of days (水準の変化) on top of the day-by-day rules. Off by default. */
+  levelShifts: boolean
+  setLevelShifts: (on: boolean) => void
   toggleDayOverride: (date: string, autoKind: DayKind) => void
   removeDayOverride: (date: string) => void
   clearDayOverrides: () => void
@@ -97,8 +101,8 @@ export interface ViewerState {
   /** Reference quota limits for the individual view (not official OpenAI numbers). */
   limits: Limits
   setLimits: (limits: Limits) => boolean
-  /** Query parameters every data request carries: sensitivity and the holiday/workday overrides. */
-  params: { sensitivity?: number; holidays?: string; workdays?: string }
+  /** Query parameters every data request carries: sensitivity, level shifts and the holiday/workday overrides. */
+  params: { sensitivity?: number; holidays?: string; workdays?: string; level_shifts?: 'true' }
 }
 
 const ViewerContext = createContext<ViewerState | null>(null)
@@ -110,6 +114,7 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       return value >= 0.25 && value <= 4 ? SENSITIVITY_STEPS[sensitivityIndex(value)].value : null
     }, 1),
   )
+  const [levelShifts, setLevelShiftsState] = useState(() => read(KEYS.levelShifts, (raw) => (raw === 'true' ? true : raw === 'false' ? false : null), false))
   const [dayOverrides, setDayOverrides] = useState<Record<string, DayKind>>(() =>
     read(
       KEYS.overrides,
@@ -160,6 +165,10 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
     setSensitivityState(snapped)
     write(KEYS.sensitivity, String(snapped))
   }, [])
+  const setLevelShifts = useCallback((on: boolean) => {
+    setLevelShiftsState(on)
+    write(KEYS.levelShifts, String(on))
+  }, [])
   const updateOverrides = useCallback((next: Record<string, DayKind>) => {
     setDayOverrides(next)
     write(KEYS.overrides, next)
@@ -202,16 +211,17 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       sensitivity: sensitivity !== 1 ? sensitivity : undefined,
       holidays: holidays || undefined,
       workdays: workdays || undefined,
+      level_shifts: levelShifts ? ('true' as const) : undefined,
     }
-  }, [sensitivity, dayOverrides])
+  }, [sensitivity, dayOverrides, levelShifts])
 
   const value = useMemo<ViewerState>(
     () => ({
-      sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, limits,
-      setSensitivity, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, setLimits,
+      sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, limits, levelShifts,
+      setSensitivity, setLevelShifts, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, setLimits,
       params,
     }),
-    [sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, limits, setSensitivity, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, setLimits, params],
+    [sensitivity, dayOverrides, contextMode, aiModel, aiPrompts, limits, levelShifts, setSensitivity, setLevelShifts, toggleDayOverride, removeDayOverride, clearDayOverrides, setContextMode, setAiModel, setAiPrompts, setLimits, params],
   )
   return <ViewerContext.Provider value={value}>{children}</ViewerContext.Provider>
 }

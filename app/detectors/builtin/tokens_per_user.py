@@ -58,7 +58,7 @@ class TokensPerUser(Detector):
                 scale_of=scale, window_days=self.params["window_days"], min_history=self.params["min_history"],
                 same_kind_only=self.params["same_kind_only"], period_wide=ctx.period_wide,
                 excluded=is_spike if self.params["exclude_anomalies"] else None,
-                shift_slack=self.params["shift_slack"], shift_limit=self.tuned("shift_limit", ctx),
+                shift_slack=self.params["shift_slack"], shift_limit=self.shift_limit(ctx),
                 shift_cap=self.params["shift_cap"],
             )
             for point in points:

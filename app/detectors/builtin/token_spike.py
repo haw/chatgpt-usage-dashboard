@@ -29,7 +29,7 @@ class TokenSpike(Detector):
         "普段のばらつきの z 倍を超えて多い日を検出します。小さい量どうしの倍率を過大に扱わないよう、"
         "比べる両方に「直前期間の平日1日分（総トークン中央値 × scale_share）」を足してから倍率を求めます。"
         "1日ごとの判定ラインは超えなくても多めの日が続いた場合は、日々の上振れを積み上げて「水準の変化」として"
-        "始まりの日に1回だけ知らせ、以後はその新しい水準を基準にします（shift_limit を 0 にすると無効）。"
+        "始まりの日に1回だけ知らせ、以後はその新しい水準を基準にします（閲覧者が「続く変化も判定」を有効にしたときだけ。shift_limit は強さ）。"
         "期間指定時は選択期間全体を基準にします。判定ライン未満でも info_z 以上の上振れは「参考」として表示します。"
     )
     group = "tokens"
@@ -55,7 +55,7 @@ class TokenSpike(Detector):
             window_days=self.params["window_days"], min_history=self.params["min_history"],
             same_kind_only=self.params["same_kind_only"],
             period_wide=ctx.period_wide, excluded=is_spike if self.params["exclude_anomalies"] else None,
-            shift_slack=self.params["shift_slack"], shift_limit=self.tuned("shift_limit", ctx),
+            shift_slack=self.params["shift_slack"], shift_limit=self.shift_limit(ctx),
             shift_cap=self.params["shift_cap"],
         )
 

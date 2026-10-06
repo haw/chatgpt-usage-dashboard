@@ -44,6 +44,17 @@ describe('InsightsPage against the real API', () => {
     expect(screen.getAllByText(date!).length).toBeGreaterThan(0)
   })
 
+  it('lets the viewer opt in to the level-shift judgement', async () => {
+    renderInsights()
+    await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })
+    const toggle = screen.getByRole('switch', { name: '続く変化も判定' })
+    expect(toggle).not.toBeChecked()
+    await userEvent.click(toggle)
+    expect(toggle).toBeChecked()
+    expect(localStorage.getItem('chatgpt-dashboard.level-shifts.v1')).toBe('true')
+    await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })  // the list re-queried with level_shifts=true
+  })
+
   it('opens the observation panel from a deep link and shows one chart per observation', async () => {
     renderInsights()
     await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })

@@ -26,7 +26,7 @@ ChatGPT 管理画面から出力した日次集計 JSON を取り込み、平日
 画面（React）はこの API だけを使います。`AUTH_MODE=google` のときは `/health`・ログイン関連以外は社内 Google アカウントの
 セッション Cookie が必要です（この docs も同じ）。
 
-- 閲覧者ごとの設定は各リクエストのパラメータで渡します: `sensitivity`（0.25〜4、既定 1）、`holidays` / `workdays`（カンマ区切りの日付で区分を上書き）。
+- 閲覧者ごとの設定は各リクエストのパラメータで渡します: `sensitivity`（0.25〜4、既定 1）、`holidays` / `workdays`（カンマ区切りの日付で区分を上書き）、`level_shifts`（true で「続く変化も判定」。既定 false）。
 - 判定の中身（検知器）は `config/detectors.toml` で設定し、`GET /api/detectors` で確認できます。
 """
 TAGS = [
@@ -95,6 +95,7 @@ def dashboard(
     holidays: str | None = Query(default=None),
     workdays: str | None = Query(default=None),
     sensitivity: float | None = Query(default=None),
+    level_shifts: bool = Query(default=False, description="続く変化（水準の変化）も判定に含める"),
 ) -> dict:
     if start_date and end_date and start_date > end_date:
         raise HTTPException(status_code=400, detail="開始日は終了日以前にしてください")
@@ -107,6 +108,7 @@ def dashboard(
         end_date.isoformat() if end_date else None,
         day_overrides=_day_overrides(holidays, workdays),
         sensitivity=_sensitivity(sensitivity),
+        level_shifts=level_shifts,
     )
 
 
@@ -114,12 +116,13 @@ def dashboard(
 def triage(
     holidays: str | None = Query(default=None),
     workdays: str | None = Query(default=None),
+    level_shifts: bool = Query(default=False, description="続く変化（水準の変化）も判定に含める"),
 ) -> dict:
     """Ranked days worth looking at, independent of the viewer's sensitivity."""
     storage = create_storage(Settings.from_env())
     return build_triage(
         storage.load_workspace_usage(), storage.load_import_state(), default_detectors(),
-        storage.load_dispositions(), day_overrides=_day_overrides(holidays, workdays),
+        storage.load_dispositions(), day_overrides=_day_overrides(holidays, workdays), level_shifts=level_shifts,
     )
 
 
@@ -191,11 +194,12 @@ def individual_dashboard(
     holidays: str | None = Query(default=None),
     workdays: str | None = Query(default=None),
     sensitivity: float | None = Query(default=None),
+    level_shifts: bool = Query(default=False),
 ) -> dict:
     storage = create_storage(Settings.from_env())
     return build_individual_dashboard(
         storage.load_individual_usage(), storage.load_individual_import_state(), user_id,
-        day_overrides=_day_overrides(holidays, workdays), sensitivity=_sensitivity(sensitivity),
+        day_overrides=_day_overrides(holidays, workdays), sensitivity=_sensitivity(sensitivity), level_shifts=level_shifts,
     )
 
 

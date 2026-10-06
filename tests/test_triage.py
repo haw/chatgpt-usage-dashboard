@@ -43,7 +43,7 @@ def test_triage_ranks_the_multi_detector_day_first_and_separates_tiers():
     assert top["detectors"] >= 2 and top["max_severity"] == "medium" and not top["continuing"]
     assert len(result["today"]) <= 5
     # a day that only continues the previous days' pattern ranks below the onset day
-    spike = build_triage(rows_with_a_three_day_spike(), {}, build_detector_set(CONFIG), [], today="2026-10-01")
+    spike = build_triage(rows_with_a_three_day_spike(), {}, build_detector_set(CONFIG), [], today="2026-10-01", level_shifts=True)
     scores = {e["date"]: e["score"] for tier in ("today", "week") for e in spike[tier]}
     assert scores["2026-09-29"] < scores["2026-09-28"]
     assert "2026-09-30" not in scores  # the new level is the baseline now
@@ -71,9 +71,12 @@ def test_checked_days_drop_to_reference_and_clearing_restores_them():
 
 
 def test_observations_carry_novelty_and_streak():
-    result = build_triage(rows_with_a_three_day_spike(), {}, build_detector_set(CONFIG), [], today="2026-10-01")
+    result = build_triage(rows_with_a_three_day_spike(), {}, build_detector_set(CONFIG), [], today="2026-10-01", level_shifts=True)
     entries = {e["date"]: e for tier in ("today", "week", "reference") for e in result[tier]}
     spike = [entries[d] for d in ("2026-09-28", "2026-09-29")]
+    # the default (day-by-day only) keeps alarming on the third day instead
+    plain = build_triage(rows_with_a_three_day_spike(), {}, build_detector_set(CONFIG), [], today="2026-10-01")
+    assert "2026-09-30" in {e["date"] for tier in ("today", "week") for e in plain[tier]}
     assert any(o["novel"] for o in spike[0]["observations"])
     assert not any(o["novel"] for o in spike[1]["observations"])
     assert {o["type"] for o in spike[0]["observations"]} >= {"token_spike", "level_shift"}

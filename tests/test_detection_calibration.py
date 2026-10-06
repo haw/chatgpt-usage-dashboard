@@ -82,17 +82,18 @@ def test_a_day_far_above_the_usual_is_flagged_and_graded():
 def test_growth_becomes_the_new_baseline_instead_of_alarming_forever():
     # usage grows fivefold in week 5 and stays there
     rows = workspace(84, level=lambda index: (20 if index < 28 else 100) * M)
-    days = flagged(TokenSpike(), rows)
-    assert days[0] == day(28) and len(days) <= 3          # reported when it starts, then accepted
-    shifts = [s for s in TokenSpike().detect(context(rows)) if s.type == "level_shift" and s.product is None]
+    # by default (day-by-day rules only) the rolling baseline needs a couple of weeks to catch up
+    slow = flagged(TokenSpike(), rows)
+    assert slow[0] == day(28) and len(slow) <= 10 and all(d < day(28 + 21) for d in slow), slow
+    # with exclude_anomalies on top the old level stays the reference for as long as it is in the window
+    sticky = flagged(TokenSpike({"exclude_anomalies": True}), rows)
+    assert len(sticky) > len(slow) and sticky[-1] > slow[-1]
+    # when the viewer turns level shifts on, the jump is reported once when it starts, then accepted
+    days = flagged(TokenSpike(), rows, level_shifts=True)
+    assert days[0] == day(28) and len(days) < len(slow) and len(days) <= 3
+    shifts = [s for s in TokenSpike().detect(context(rows, level_shifts=True)) if s.type == "level_shift" and s.product is None]
     assert [(s.date, s.severity) for s in shifts] == [(day(28), "high")]
     assert shifts[0].span_days == 2 and shifts[0].baseline < 25 * M < 80 * M < shifts[0].value
-    # without level tracking the rolling baseline needs a couple of weeks to catch up
-    slow = flagged(TokenSpike({"shift_limit": 0}), rows)
-    assert len(days) < len(slow) <= 10 and all(d < day(28 + 21) for d in slow), slow
-    # and with exclude_anomalies on top the old level stays the reference for as long as it is in the window
-    sticky = flagged(TokenSpike({"shift_limit": 0, "exclude_anomalies": True}), rows)
-    assert len(sticky) > len(slow) and sticky[-1] > slow[-1]
 
 
 def test_small_misuse_that_goes_on_is_reported_once_as_a_level_shift():
@@ -100,15 +101,15 @@ def test_small_misuse_that_goes_on_is_reported_once_as_a_level_shift():
     for index in range(42, 47):  # Mon-Fri of week 7: one more ordinary workday's worth, every day
         rows[index]["tokens"]["codex"] += 100 * M
         rows[index]["tokens"]["total"] += 100 * M
-    assert flagged(TokenSpike({"shift_limit": 0}), rows) == []  # no single day crosses the line
-    signals = [s for s in TokenSpike().detect(context(rows)) if s.severity != "info"]
+    assert flagged(TokenSpike(), rows) == []  # no single day crosses the line: the default rules see nothing
+    signals = [s for s in TokenSpike().detect(context(rows, level_shifts=True)) if s.severity != "info"]
     assert {(s.type, s.date) for s in signals} == {("level_shift", day(42))}
     assert "codex" in {s.product for s in signals} and all(s.span_days >= 3 for s in signals)
     assert "水準の変化" in signals[0].reason
     # one very high day is a spike, not a change of level
     rows = workspace(70)
     rows[45]["tokens"] = {"chat": 40 * M, "codex": 460 * M, "work": 0, "total": 500 * M}
-    assert {s.type for s in TokenSpike().detect(context(rows)) if s.severity != "info"} == {"token_spike"}
+    assert {s.type for s in TokenSpike().detect(context(rows, level_shifts=True)) if s.severity != "info"} == {"token_spike"}
 
 
 def test_more_people_every_day_is_a_level_shift_but_one_more_person_is_not():
@@ -116,14 +117,14 @@ def test_more_people_every_day_is_a_level_shift_but_one_more_person_is_not():
     for index in range(42, 70):
         if index % 7 < 5:
             rows[index]["active_users"]["chat"] += 3
-    signals = [s for s in DauChange().detect(context(rows)) if s.severity != "info"]
+    signals = [s for s in DauChange().detect(context(rows, level_shifts=True)) if s.severity != "info"]
     assert [(s.type, s.date, s.baseline, s.value) for s in signals] == [("dau_level_shift", day(42), 10, 13)]
-    assert flagged(DauChange({"shift_limit": 0}), rows) == []
+    assert flagged(DauChange(), rows) == []  # three more people every day stay under the daily line
     rows = workspace(70)
     for index in range(42, 70):
         if index % 7 < 5:
             rows[index]["active_users"]["chat"] += 1
-    assert flagged(DauChange(), rows) == []
+    assert flagged(DauChange(), rows, level_shifts=True) == []
 
 
 def test_small_amounts_do_not_count_as_spikes():
@@ -170,11 +171,11 @@ def test_evaluation_reports_false_alarms_and_what_misuse_would_be_noticed():
     assert small[1.0]["detected"] <= large[1.0]["detected"]  # more misuse is never harder to notice
     assert small[2.0]["detected"] >= small[1.0]["detected"]  # nor is a higher sensitivity
     assert rates["holiday_use"][1.0]["tried"] < large[1.0]["tried"]  # only holidays are tried
-    slow = {line["key"]: line["rates"][1.0] for line in detection_rates(rows, detectors, (1.0,), SUSTAINED, today=day(70))}
-    spikes_only = DetectorSet([TokenSpike({"shift_limit": 0}), TokensPerUser({"shift_limit": 0})], [])
-    without = {line["key"]: line["rates"][1.0] for line in detection_rates(rows, spikes_only, (1.0,), SUSTAINED, today=day(70))}
+    slow = {line["key"]: line["rates"][1.0] for line in detection_rates(rows, detectors, (1.0,), SUSTAINED, today=day(70), level_shifts=True)}
+    without = {line["key"]: line["rates"][1.0] for line in detection_rates(rows, detectors, (1.0,), SUSTAINED, today=day(70))}
     assert slow["slow_one_5"]["detected"] / slow["slow_one_5"]["tried"] > 0.8 > 0.2 > (
         without["slow_one_5"]["detected"] / without["slow_one_5"]["tried"])
     text = render(rows, detectors, today=day(70))
     assert "誤検出" in text and "検出力" in text and "少しずつ続く" in text and "70日" in text
+    assert "1日ごとの判定だけ" in text and "続く変化も判定" in text
     assert render([], detectors) == "ワークスペースのデータがありません。"

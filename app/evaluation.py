@@ -68,11 +68,11 @@ SUSTAINED = (
 
 
 def _flagged_days(rows: list[dict[str, Any]], detectors: DetectorSet, sensitivity: float, today: str | None,
-                  overrides: dict[str, str] | None = None) -> dict[str, list[dict[str, Any]]]:
+                  overrides: dict[str, str] | None = None, level_shifts: bool = False) -> dict[str, list[dict[str, Any]]]:
     """Dates with at least one signal above the line (not "info"), with those signals."""
     days = classify_days(rows, overrides)
     ctx = DetectionContext(rows=rows, scope="workspace", day_kinds={d: v["kind"] for d, v in days.items()},
-                           sensitivity=sensitivity, today=today)
+                           sensitivity=sensitivity, today=today, level_shifts=level_shifts)
     operations = {d.id for d in detectors.detectors if d.group == "operations"}
     result: dict[str, list[dict[str, Any]]] = {}
     for signal in detectors.run(ctx):
@@ -82,11 +82,11 @@ def _flagged_days(rows: list[dict[str, Any]], detectors: DetectorSet, sensitivit
 
 
 def false_alarms(rows: list[dict[str, Any]], detectors: DetectorSet, sensitivities: tuple[float, ...] = SENSITIVITIES,
-                 today: str | None = None) -> list[dict[str, Any]]:
+                 today: str | None = None, level_shifts: bool = False) -> list[dict[str, Any]]:
     """Per sensitivity: which days of the (clean) data are flagged, and by which detectors."""
     report = []
     for sensitivity in sensitivities:
-        flagged = _flagged_days(rows, detectors, sensitivity, today)
+        flagged = _flagged_days(rows, detectors, sensitivity, today, level_shifts=level_shifts)
         by_detector: dict[str, int] = {}
         for signals in flagged.values():
             for detector in {signal["detector"] for signal in signals}:
@@ -130,7 +130,7 @@ def inject(rows: list[dict[str, Any]], targets: list[int], scenario: Scenario, t
 
 def detection_rates(rows: list[dict[str, Any]], detectors: DetectorSet,
                     sensitivities: tuple[float, ...] = SENSITIVITIES, scenarios: tuple[Scenario, ...] = SCENARIOS,
-                    today: str | None = None) -> list[dict[str, Any]]:
+                    today: str | None = None, level_shifts: bool = False) -> list[dict[str, Any]]:
     """Per scenario and sensitivity: in what share of attempts the injected misuse gets flagged.
 
     Only days that are not flagged without the injection count, so the rate measures what the
@@ -143,7 +143,7 @@ def detection_rates(rows: list[dict[str, Any]], detectors: DetectorSet,
     for scenario in scenarios:
         line: dict[str, Any] = {"key": scenario.key, "label": scenario.label, "rates": {}}
         for sensitivity in sensitivities:
-            already = _flagged_days(rows, detectors, sensitivity, today)
+            already = _flagged_days(rows, detectors, sensitivity, today, level_shifts=level_shifts)
             tried = detected = 0
             for index, row in enumerate(rows):
                 if row.get("tokens") is None or row.get("active_users") is None:
@@ -155,7 +155,7 @@ def detection_rates(rows: list[dict[str, Any]], detectors: DetectorSet,
                 if typical is None or targets is None or (scenario.days == 1 and row["date"] in already):
                     continue
                 tried += 1
-                flagged = _flagged_days(inject(rows, targets, scenario, typical), detectors, sensitivity, today, kinds)
+                flagged = _flagged_days(inject(rows, targets, scenario, typical), detectors, sensitivity, today, kinds, level_shifts)
                 # A run of days is reported at its first day, which can lie a little before the misuse began.
                 first = (date.fromisoformat(row["date"]) - timedelta(days=LEAD_DAYS)).isoformat()
                 last = rows[targets[-1]]["date"]
@@ -166,12 +166,19 @@ def detection_rates(rows: list[dict[str, Any]], detectors: DetectorSet,
 
 
 def render(rows: list[dict[str, Any]], detectors: DetectorSet, today: str | None = None) -> str:
-    """The evaluation as plain text."""
+    """The evaluation as plain text: the day-by-day rules alone, then with level shifts added."""
     if not rows:
         return "ワークスペースのデータがありません。"
-    lines = [f"対象: {rows[0]['date']} 〜 {rows[-1]['date']}（{len(rows)}日）。この期間に不正利用はなかったものとして評価します。", ""]
-    lines.append("1. 誤検出: 不正のない期間で「要確認」（参考を除く）になった日")
-    for entry in false_alarms(rows, detectors, today=today):
+    lines = [f"対象: {rows[0]['date']} 〜 {rows[-1]['date']}（{len(rows)}日）。この期間に不正利用はなかったものとして評価します。"]
+    for level_shifts, title in ((False, "A. 1日ごとの判定だけ（既定）"), (True, "B. 「続く変化も判定」を有効にした場合")):
+        lines += ["", f"===== {title} ====="]
+        lines += _render_part(rows, detectors, today, level_shifts)
+    return "\n".join(lines)
+
+
+def _render_part(rows: list[dict[str, Any]], detectors: DetectorSet, today: str | None, level_shifts: bool) -> list[str]:
+    lines = ["1. 誤検出: 不正のない期間で「要確認」（参考を除く）になった日"]
+    for entry in false_alarms(rows, detectors, today=today, level_shifts=level_shifts):
         share = len(entry["flagged_days"]) / entry["days"]
         detail = "、".join(f"{name} {count}日" for name, count in entry["by_detector"].items()) or "なし"
         lines.append(f"  感度 {entry['sensitivity']:<4}: {len(entry['flagged_days']):>2}日 / {entry['days']}日（{share:.0%}）"
@@ -184,9 +191,9 @@ def render(rows: list[dict[str, Any]], detectors: DetectorSet, today: str | None
     ):
         lines += ["", title]
         lines.append("  " + " " * 2 + "".join(f"感度{s:<5}" for s in SENSITIVITIES) + " シナリオ")
-        for line in detection_rates(rows, detectors, scenarios=scenarios, today=today):
+        for line in detection_rates(rows, detectors, scenarios=scenarios, today=today, level_shifts=level_shifts):
             cells = "".join(
                 f"{(r['detected'] / r['tried']):>5.0%}    " if r["tried"] else "   -     " for r in line["rates"].values())
             lines.append(f"  {cells} {line['label']}")
     lines += ["", "  足した量は「直前28日の平日の総トークン中央値」に対する倍率です。もともと要確認の日は試行から除いています。"]
-    return "\n".join(lines)
+    return lines

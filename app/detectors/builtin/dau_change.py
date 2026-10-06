@@ -16,7 +16,7 @@ class DauChange(Detector):
         "比較します。ばらつきは min_spread 人を下限にします（毎日同じ人数が続いたあとの±1〜2人を異常としないため）。"
         "製品間では人数を合算しません。1日ごとの判定ラインは超えなくても普段より多い日が続いた場合は、"
         "日々の上振れを積み上げて「水準の変化」として始まりの日に1回だけ知らせ、以後は新しい人数を基準にします"
-        "（shift_limit を 0 にすると無効）。"
+        "（閲覧者が「続く変化も判定」を有効にしたときだけ）。"
     )
     group = "dau"
     default_params = {
@@ -40,7 +40,7 @@ class DauChange(Detector):
                 window_days=self.params["window_days"], min_history=self.params["min_history"],
                 same_kind_only=self.params["same_kind_only"], period_wide=ctx.period_wide,
                 excluded=is_anomalous if self.params["exclude_anomalies"] else None,
-                shift_slack=self.params["shift_slack"], shift_limit=self.tuned("shift_limit", ctx),
+                shift_slack=self.params["shift_slack"], shift_limit=self.shift_limit(ctx),
                 shift_cap=self.params["shift_cap"],
             )
             for point in points:
