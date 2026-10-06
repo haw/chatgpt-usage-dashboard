@@ -170,7 +170,7 @@ def render(rows: list[dict[str, Any]], detectors: DetectorSet, today: str | None
     if not rows:
         return "ワークスペースのデータがありません。"
     lines = [f"対象: {rows[0]['date']} 〜 {rows[-1]['date']}（{len(rows)}日）。この期間に不正利用はなかったものとして評価します。"]
-    for level_shifts, title in ((False, "A. 1日ごとの判定だけ（既定）"), (True, "B. 「続く変化も判定」を有効にした場合")):
+    for level_shifts, title in ((False, "A. 1日ごとの判定だけ（既定）"), (True, "B. 「変化点検出」を有効にした場合")):
         lines += ["", f"===== {title} ====="]
         lines += _render_part(rows, detectors, today, level_shifts)
     return "\n".join(lines)

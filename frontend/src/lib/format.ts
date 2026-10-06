@@ -52,7 +52,7 @@ export function isLevelShift(a: Signal): boolean {
 }
 
 export function observationLabel(a: Signal, detectorLabel: string): string {
-  return `${isLevelShift(a) ? '水準の変化' : detectorLabel}${a.product ? ` · ${a.product.toUpperCase()}` : ''}`
+  return `${isLevelShift(a) ? '変化点' : detectorLabel}${a.product ? ` · ${a.product.toUpperCase()}` : ''}`
 }
 
 /** One short sentence per signal: what, how much, compared with what. */

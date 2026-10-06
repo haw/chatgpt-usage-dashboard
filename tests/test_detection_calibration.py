@@ -105,7 +105,7 @@ def test_small_misuse_that_goes_on_is_reported_once_as_a_level_shift():
     signals = [s for s in TokenSpike().detect(context(rows, level_shifts=True)) if s.severity != "info"]
     assert {(s.type, s.date) for s in signals} == {("level_shift", day(42))}
     assert "codex" in {s.product for s in signals} and all(s.span_days >= 3 for s in signals)
-    assert "水準の変化" in signals[0].reason
+    assert "変化点" in signals[0].reason
     # one very high day is a spike, not a change of level
     rows = workspace(70)
     rows[45]["tokens"] = {"chat": 40 * M, "codex": 460 * M, "work": 0, "total": 500 * M}
@@ -177,5 +177,5 @@ def test_evaluation_reports_false_alarms_and_what_misuse_would_be_noticed():
         without["slow_one_5"]["detected"] / without["slow_one_5"]["tried"])
     text = render(rows, detectors, today=day(70))
     assert "誤検出" in text and "検出力" in text and "少しずつ続く" in text and "70日" in text
-    assert "1日ごとの判定だけ" in text and "続く変化も判定" in text
+    assert "1日ごとの判定だけ" in text and "変化点検出" in text
     assert render([], detectors) == "ワークスペースのデータがありません。"

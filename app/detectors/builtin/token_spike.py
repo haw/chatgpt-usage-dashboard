@@ -28,8 +28,8 @@ class TokenSpike(Detector):
         "トークン量は日によって数割〜数倍ふれるのが普通なので、差ではなく対数（倍率）で中央値とばらつき（MAD）を求め、"
         "普段のばらつきの z 倍を超えて多い日を検出します。小さい量どうしの倍率を過大に扱わないよう、"
         "比べる両方に「直前期間の平日1日分（総トークン中央値 × scale_share）」を足してから倍率を求めます。"
-        "1日ごとの判定ラインは超えなくても多めの日が続いた場合は、日々の上振れを積み上げて「水準の変化」として"
-        "始まりの日に1回だけ知らせ、以後はその新しい水準を基準にします（閲覧者が「続く変化も判定」を有効にしたときだけ。shift_limit は強さ）。"
+        "1日ごとの判定ラインは超えなくても多めの日が続いた場合は、日々の上振れを積み上げて「変化点」として"
+        "始まりの日に1回だけ知らせ、以後はその新しい水準を基準にします（閲覧者が「変化点検出」を有効にしたときだけ。shift_limit は強さ）。"
         "期間指定時は選択期間全体を基準にします。判定ライン未満でも info_z 以上の上振れは「参考」として表示します。"
     )
     group = "tokens"
@@ -116,7 +116,7 @@ class TokenSpike(Detector):
                     metric=metric, product=None if product == "total" else product,
                     date=shift.start, value=round(shift.after), baseline=round(shift.before, 1),
                     score=round(shift.score, 2), span_days=shift.days,
-                    reason=(f"この日から{kind_label}{shift.days}日続けて多く、{shift.confirmed} に水準の変化と判定。"
+                    reason=(f"この日から{kind_label}{shift.days}日続けて多く、{shift.confirmed} に変化点と判定。"
                             f"1日あたり {shift.before:,.0f} → {shift.after:,.0f}"),
                 ))
         return signals

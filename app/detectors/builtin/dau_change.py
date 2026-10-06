@@ -15,8 +15,8 @@ class DauChange(Detector):
         "Chat・Codex・Workそれぞれの日次アクティブユーザー数を、同じ区分（平日・休日）の直前期間の中央値とばらつき（MAD）で"
         "比較します。ばらつきは min_spread 人を下限にします（毎日同じ人数が続いたあとの±1〜2人を異常としないため）。"
         "製品間では人数を合算しません。1日ごとの判定ラインは超えなくても普段より多い日が続いた場合は、"
-        "日々の上振れを積み上げて「水準の変化」として始まりの日に1回だけ知らせ、以後は新しい人数を基準にします"
-        "（閲覧者が「続く変化も判定」を有効にしたときだけ）。"
+        "日々の上振れを積み上げて「変化点」として始まりの日に1回だけ知らせ、以後は新しい人数を基準にします"
+        "（閲覧者が「変化点検出」を有効にしたときだけ）。"
     )
     group = "dau"
     default_params = {
@@ -67,7 +67,7 @@ class DauChange(Detector):
                     detector=self.id, type="dau_level_shift", severity="medium", metric="DAU", product=product,
                     date=shift.start, value=round(shift.after, 1), baseline=round(shift.before, 1),
                     score=round(shift.score, 2), span_days=shift.days,
-                    reason=(f"この日から{kind_label}{shift.days}日続けて多く、{shift.confirmed} に水準の変化と判定。"
+                    reason=(f"この日から{kind_label}{shift.days}日続けて多く、{shift.confirmed} に変化点と判定。"
                             f"1日あたり {shift.before:,.1f}人 → {shift.after:,.1f}人"),
                 ))
         return signals

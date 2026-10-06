@@ -47,7 +47,7 @@ describe('InsightsPage against the real API', () => {
   it('lets the viewer opt in to the level-shift judgement', async () => {
     renderInsights()
     await screen.findAllByText(/最終データ日/, {}, { timeout: 10_000 })
-    const toggle = screen.getByRole('switch', { name: '続く変化も判定' })
+    const toggle = screen.getByRole('switch', { name: '変化点検出' })
     expect(toggle).not.toBeChecked()
     await userEvent.click(toggle)
     expect(toggle).toBeChecked()

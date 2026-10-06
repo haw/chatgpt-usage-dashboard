@@ -89,7 +89,7 @@ export interface ViewerState {
   aiModel: AiModel
   aiPrompts: AiPrompts
   setSensitivity: (value: number) => void
-  /** Also judge runs of days (水準の変化) on top of the day-by-day rules. Off by default. */
+  /** Also judge runs of days (変化点検出, CUSUM) on top of the day-by-day rules. Off by default. */
   levelShifts: boolean
   setLevelShifts: (on: boolean) => void
   toggleDayOverride: (date: string, autoKind: DayKind) => void
